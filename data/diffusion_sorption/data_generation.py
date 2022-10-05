@@ -2,6 +2,7 @@
 This script creates a certain amount of data for a diffusion sorption problem.
 """
 
+from doctest import FAIL_FAST
 import numpy as np
 import os
 import matplotlib.pyplot as plt
@@ -49,7 +50,7 @@ DATAPOINTS_BOUNDARY = 50
 DATAPOINTS_COLLOCATION = 10000
 DATASET_NAME = "data"  # RETARDATION_FACTOR_FUNCTION
 SAVE_DATA = True
-VISUALIZE_DATA = False
+VISUALIZE_DATA = True
 
 
 #############
@@ -119,7 +120,8 @@ def generate_sample(simulator, visualize, save_data, root_path):
             data_tuples.extend(np.transpose(create_data_tuple_colloc(
                 sample_c=sample_c, sample_ct=sample_ct, simulator=simulator
             )))
-        
+
+            ##print(data_tuples)
             write_tuples_to_file(root_path, data_tuples, mode="train")
 
         # Training data (validation)
@@ -151,7 +153,7 @@ def generate_sample(simulator, visualize, save_data, root_path):
             data_tuples.extend(np.transpose(create_data_tuple_colloc(
                 sample_c=sample_c, sample_ct=sample_ct, simulator=simulator
             )))
-        
+            
             write_tuples_to_file(root_path, data_tuples, mode="val")
         
     
@@ -349,11 +351,11 @@ def visualize_sample(sample, simulator, idcs_init=None, idcs_bound=None):
     divider = make_axes_locatable(ax[0])
     cax = divider.append_axes("right", size="5%", pad=0.05)
     fig.colorbar(h, cax=cax)
-
+    
     if TRAIN_DATA:
         coords_init = simulator.x[idcs_init[:, 1]]
         coords_bound = simulator.t[idcs_bound[:, 0]]
-    
+
         ax[0].plot(np.zeros(len(coords_init)), coords_init, "kx", label="Data",
                    markersize=4, clip_on=False)
         ax[0].plot(coords_bound, np.ones(len(coords_bound)) * simulator.x.min(), "kx",

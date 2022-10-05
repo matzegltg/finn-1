@@ -4,17 +4,22 @@
 Main file for training a model with FINN
 """
 
+import os
+from pickletools import uint2
+import sys
+import time
+from threading import Thread
+
+import pandas as pd
+import matplotlib.pyplot as plt
 import numpy as np
 import torch as th
 import torch.nn as nn
-import os
-import time
-from threading import Thread
-import sys
 
 sys.path.append("..")
-from utils.configuration import Configuration
 import utils.helper_functions as helpers
+from utils.configuration import Configuration
+
 from finn import *
 
 
@@ -43,7 +48,6 @@ def run_training(print_progress=True, model_number=None):
     # Set device on GPU if specified in the configuration file, else CPU
     # device = helpers.determine_device()
     device = th.device(config.general.device)
-    
     if config.data.type == "burger":
         # Load samples, together with x, y, and t series
         t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
@@ -71,30 +75,137 @@ def run_training(print_progress=True, model_number=None):
     
     elif config.data.type == "diffusion_sorption":
         # Load samples, together with x, y, and t series
+
         t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
                       dtype=th.float).to(device=device)
         x = np.load(os.path.join(data_path, "x_series.npy"))
+
+        # #size: [501, 26]
         sample_c = th.tensor(np.load(os.path.join(data_path, "sample_c.npy")),
                              dtype=th.float).to(device=device)
+
+        # #size: [501, 26]
         sample_ct = th.tensor(np.load(os.path.join(data_path, "sample_ct.npy")),
                              dtype=th.float).to(device=device)
-        
+
+        # #same dx over all x
         dx = x[1]-x[0]
+
+        # #size: [501, 26, 2]
         u = th.stack((sample_c, sample_ct), dim=len(sample_c.shape))
-        
+        # #adds noice with mu = 0, std = data.noise
+        # #for all rows apart from the firs one
+        # # 1 to last in all dimensions
         u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
         
         # Initialize and set up the model
         model = FINN_DiffSorp(
             u = u,
-            D = np.array([0.5, 0.1]),
+            D = np.array([0.0005, 0.000145]),
             BC = np.array([[1.0, 1.0], [0.0, 0.0]]),
             dx = dx,
             layer_sizes = config.model.layer_sizes,
             device = device,
             mode="train",
-            learn_coeff=True
+            learn_coeff=False
         ).to(device=device)
+    
+    elif config.data.type == "diffusion_ad2ss":
+
+        # Load samples, together with x, y, and t series
+        params = Configuration("../../data/diffusion_ad2ss/params.json")
+        t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
+                      dtype=th.float).to(device=device)
+        x = np.load(os.path.join(data_path, "x_series.npy"))
+
+        if config.expdata:
+            # cm/d
+            # get velocities
+            df = pd.read_excel("../../../../../OneDrive - bwedu/6. Semester/BA/Collaborations/PFAS/Daten/220613_ColumnExperiments_Data_N1.xlsx", "N1", skiprows=9, nrows=40, usecols="B:U")
+            
+            exp_conc = df.iloc[[20]].to_numpy(dtype=np.float64).squeeze()
+            exp_conc = exp_conc/1000
+            exp_conc = np.insert(exp_conc, 0, params.init_conc)
+            exp_t = df.iloc[[35]].to_numpy().squeeze()
+            exp_t = np.insert(exp_t, 0, 0)
+            
+            new_exp_t = np.zeros((len(exp_t)), dtype=np.float64)
+            for i in range(0,len(exp_t)-1):
+                new_exp_t[i+1] = (exp_t[i+1]+exp_t[i])/2
+            
+            sample_exp = th.from_numpy(exp_conc)
+            t_exp = th.from_numpy(new_exp_t)
+            sample_c = th.empty((params.T_STEPS, params.X_STEPS), dtype=th.float)
+            sample_ct = th.empty((params.T_STEPS, params.X_STEPS), dtype=th.float)
+            print(sample_c.shape)
+            # TODO: use equation
+            sample_c[0,:] = 32
+            sample_ct[0,:] = 42.4024
+            dt = params.T_MAX/params.T_STEPS
+            tot_time = 0
+            
+            # TODO: better time interpolations? So far: [0,t1] = c(t0)
+            # [t1,t2] = c(t1)
+            for index, elem in enumerate(t_exp):
+                for i in range(len(sample_c[:,-1])):
+                    if elem <= tot_time:
+                        sample_c[i,-1] = sample_exp[index] 
+                    tot_time+=dt
+                tot_time = 0
+                
+
+            #th.set_printoptions(threshold=sys.maxsize)
+            #print(sample_c[:,-1])
+            print(sample_ct)
+            u = th.stack((sample_c, sample_ct), dim=len(sample_c.shape))
+
+        else:
+            sample_c = th.tensor(np.load(os.path.join(data_path, "sample_c.npy")),
+                             dtype=th.float).to(device=device)
+            sample_sk = th.tensor(np.load(os.path.join(data_path, "sample_sk.npy")),
+                             dtype=th.float).to(device=device)                        
+            # #size: [501, 26, 2]
+            u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
+
+            # #adds noice with mu = 0, std = data.noise
+            # #for all rows apart from the first one
+            # # 1 to last in all dimensions
+            u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
+
+        # #same dx over all x
+        dx = x[1]-x[0]  
+        
+        # Initialize and set up the model
+        model = FINN_DiffAD2ss(
+            u = u,
+            D = np.array(params.alpha_l*params.v_e+params.D_e),
+            BC = np.array([0.0, 0.0]),
+            dx = dx,
+            layer_sizes = config.model.layer_sizes,
+            device = device,
+            mode="train",
+            learn_coeff=True,
+            learn_f=True,
+            learn_sk=True,
+            learn_f_hyd=True,
+            learn_g_hyd=True,
+            learn_r_hyd=True,
+            learn_ve=True,
+            learn_k_d=True,
+            t_steps=len(t),
+            rho_s = np.array(params.rho_s),
+            f = np.array(params.f),
+            k_d = np.array(params.k_d),
+            beta = np.array(params.beta),
+            n_e = np.array(params.porosity),
+            alpha = np.array(params.a_k),
+            v_e = np.array(params.v_e),
+            config=None,
+            learn_stencil=False,
+            bias=True,
+            sigmoid=True
+        ).to(device=device)
+
     
     elif config.data.type == "diffusion_reaction":
         # Load samples, together with x, y, and t series
@@ -178,6 +289,7 @@ def run_training(print_progress=True, model_number=None):
         ).to(device=device)
 
     # Count number of trainable parameters
+    # #numel returns total number of elements in p
     pytorch_total_params = sum(
         p.numel() for p in model.parameters() if p.requires_grad
     )
@@ -207,7 +319,6 @@ def run_training(print_progress=True, model_number=None):
     # Set up lists to save and store the epoch errors
     epoch_errors_train = []
     best_train = np.infty
-
     """
     TRAINING
     """
@@ -217,7 +328,7 @@ def run_training(print_progress=True, model_number=None):
     #
     # Start the training and iterate over all epochs
     for epoch in range(config.training.epochs):
-
+        
         epoch_start_time = time.time()
         
         # Define the closure function that consists of resetting the
@@ -226,21 +337,32 @@ def run_training(print_progress=True, model_number=None):
         # function evaluations
         def closure():
             # Set the model to train mode
+            ## WHY???
             model.train()
-                
+            
             # Reset the optimizer to clear data from previous iterations
             optimizer.zero_grad()
 
             # Forward propagate and calculate loss function
+            #print(f"t: {t.shape}")
+            #print(f"t: {t.shape}")
+            #print(model.state_dict())
+
             u_hat = model(t=t, u=u)
 
-            mse = criterion(u_hat, u)
-            
+
+            if config.expdata:
+                mse = criterion(u_hat[:,-1,0], u[:,-1,0])
+            else:
+                mse = criterion(u, u_hat)
+
+           
             mse.backward()
+            #print(f"uhat: {u_hat}")
+            #print(mse.item())
+            #print(model.D)
             
-            print(mse.item())
-            print(model.D)
-                
+            print(mse)
             return mse
         
         optimizer.step(closure)
@@ -267,13 +389,11 @@ def run_training(print_progress=True, model_number=None):
                     net=model))
                 thread.start()
 
-
-        
         #
         # Print progress to the console
         if print_progress:
             print(f"Epoch {str(epoch+1).zfill(int(np.log10(config.training.epochs))+1)}/{str(config.training.epochs)} took {str(np.round(time.time() - epoch_start_time, 2)).ljust(5, '0')} seconds. \t\tAverage epoch training error: {train_sign}{str(np.round(epoch_errors_train[-1], 10)).ljust(12, ' ')}")
-
+    
     b = time.time()
     if print_progress:
         print('\nTraining took ' + str(np.round(b - a, 2)) + ' seconds.\n\n')

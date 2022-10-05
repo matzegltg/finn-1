@@ -33,7 +33,7 @@ class Simulator:
         :param x_right: Right end of the 1D simulation field
         :param x_steps: Number of spatial steps between x_left and x_right
         """
-
+    
         # Set class parameters
         self.D = diffusion_coefficient
 
@@ -101,8 +101,7 @@ class Simulator:
         # Initialize the simulation field
         u0 = np.zeros(self.Nx)
         u0 = np.concatenate((u0, u0))
-
-        #
+        
         # Laplacian matrix
         nx = np.diag(-2*np.ones(self.Nx), k=0)
         nx_minus_1 = np.diag(np.ones(self.Nx-1), k=-1)
@@ -113,14 +112,18 @@ class Simulator:
 
         self.q = np.zeros(self.Nx)
         self.q_tot = np.zeros(self.Nx)
-
         # Solve the diffusion sorption problem
         prob = solve_ivp(self.rc_ode, (0, self.T), u0, t_eval=self.t, method="BDF")
+
+        # #ODE [52, 2001]
         ode_data = prob.y
 
         sample_c = np.transpose(ode_data[:self.Nx])
+        
         sample_c_tot = np.transpose(ode_data[self.Nx:])
 
+        # # sample_c: [2001, 26], dissolved conc.
+        # # sample_c_tot: [2001, 26], total conc.
         return sample_c, sample_c_tot
 
     def rc_ode(self, t, u):
@@ -132,10 +135,12 @@ class Simulator:
         """
         
         # Separate u into c and c_tot
+        # # u = [c1, ..., cNx, c1_tot, ... cNx_tot] (reverse concat)
         c = u[:self.Nx]
         c_tot = u[self.Nx:]
        
         # Calculate left and right BC
+        # # QUESTION: What boundary? Cauchy?
         left_BC = self.solubility
         right_BC = (c[-2]-c[-1])/self.dx * self.D
        

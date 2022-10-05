@@ -3,25 +3,27 @@
 	},
 
 	"general": {
-		"device": "cpu"  // "cpu" or "cuda"
+		"device": "cpu"  // "cpu" or "cuda"pytho
 	},
 
 	"training": {
 		"save_model": true,
-		"continue_training": false,
-		"epochs": 100,
-		"learning_rate": 0.1
+		"continue_training": true,
+		"epochs": 1,
+		"learning_rate": 1
 	},
 
 	"data": {
-		"type": "burger_2d",  // "burger", "burger_2d" "diffusion_sorption", "diffusion_reaction", "allen_cahn"
-		"name": "data_train", // "data_train", "data_ext", "data_test"
-		"noise": 0.0
+		"type": "diffusion_ad2ss",  // "burger", "burger_2d" "diffusion_sorption", "diffusion_reaction", "allen_cahn", "diffusion_ad2ss"
+		"name": "data_ext", // "data_train", "data_ext", "data_test"
+		"noise": 0
 	},
 
 	"model": {
-		"name": "burger_2d",  // "burger", "burger_2d", "diff-sorp", "diff-react", "allen-cahn"
-		"number": 0,  // The i-th model
-		"layer_sizes": [1, 10, 20, 10, 1] // [1, 10, 20, 10, 1] for burger, burger_2d, diffusion_sorption, and allen_cahn, [2, 20, 20, 20, 2] for diffusion_reaction
-	}
+		"name": "diff-ad2ss",  // "burger", "burger_2d", "diff-sorp", "diff-react", "allen-cahn", "diff-ad2ss"
+		"number": 5,  // The i-th model
+		"layer_sizes": [2, 20, 20, 20, 1] // [1, 10, 20, 10, 1] for burger, burger_2d, diffusion_sorption, and allen_cahn, [2, 20, 20, 20, 2] for diffusion_reaction, [2, 20,20,20,1] for diff_ad2ss
+	},
+
+	"expdata": false
 }

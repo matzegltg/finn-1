@@ -13,6 +13,8 @@ import matplotlib.animation as animation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import sys
 import time
+import pickle
+import pathlib as pth
 
 sys.path.append("..")
 from utils.configuration import Configuration
@@ -69,17 +71,71 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
             learn_coeff=True
         ).to(device=device)
     
-    
+    elif config.data.type == "diffusion_ad2ss":
+
+        params = Configuration("../../data/diffusion_ad2ss/params.json")
+        
+        # Load samples, together with x, y, and t series
+        t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
+                      dtype=th.float).to(device=device)
+
+        x = np.load(os.path.join(data_path, "x_series.npy"))
+        sample_c = th.tensor(np.load(os.path.join(data_path, "sample_c.npy")),
+                             dtype=th.float).to(device=device)
+        sample_sk = th.tensor(np.load(os.path.join(data_path, "sample_sk.npy")),
+                             dtype=th.float).to(device=device)
+        
+        dx = x[1]-x[0]
+
+        u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
+        u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
+        
+        # Initialize and set up the model
+        # TODO: boundaries? Neumann...
+        bc = np.array([0.0, 0.0])
+            
+        # Initialize and set up the model
+        model = FINN_DiffAD2ss(
+            u = u,
+            D = np.array(params.alpha_l*params.v_e+params.D_e),
+            BC = np.array([0.0, 0.0]),
+            dx = dx,
+            layer_sizes = config.model.layer_sizes,
+            device = device,
+            mode="train",
+            learn_coeff=True,
+            learn_f=True,
+            learn_sk=True,
+            learn_f_hyd=True,
+            learn_g_hyd=True,
+            learn_r_hyd=True,
+            learn_ve=True,
+            learn_k_d=True,
+            t_steps=len(t),
+            rho_s = np.array(params.rho_s),
+            f = np.array(params.f),
+            k_d = np.array(params.k_d),
+            beta = np.array(params.beta),
+            n_e = np.array(params.porosity),
+            alpha = np.array(params.a_k),
+            v_e = np.array(params.v_e),
+            config=None,
+            learn_stencil=False,
+            bias=True,
+            sigmoid=True
+        ).to(device=device)
+        
     elif config.data.type == "diffusion_sorption":
         # Load samples, together with x, y, and t series
         t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
                       dtype=th.float).to(device=device)
+
         x = np.load(os.path.join(data_path, "x_series.npy"))
         sample_c = th.tensor(np.load(os.path.join(data_path, "sample_c.npy")),
                              dtype=th.float).to(device=device)
         sample_ct = th.tensor(np.load(os.path.join(data_path, "sample_ct.npy")),
                              dtype=th.float).to(device=device)
-        
+        print(sample_c.shape)
         dx = x[1]-x[0]
         u = th.stack((sample_c, sample_ct), dim=len(sample_c.shape))
         u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
@@ -92,13 +148,13 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
             
         model = FINN_DiffSorp(
             u = u,
-            D = np.array([0.5, 0.1]),
+            D = np.array([0.0005, 0.000145]),
             BC = bc,
             dx = dx,
             layer_sizes = config.model.layer_sizes,
             device = device,
             mode="test",
-            learn_coeff=True
+            learn_coeff=False
         ).to(device=device)
     
     elif config.data.type == "diffusion_reaction":
@@ -190,6 +246,11 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
     print(f"Trainable model parameters: {pytorch_total_params}\n")
 
     # Load the trained weights from the checkpoints into the model
+    ##x = th.load(os.path.join(os.path.abspath(""),
+    ##                                          "checkpoints",
+    ##                                          config.model.name,
+    ##                                          config.model.name+".pt"))
+    ##print(x)
     model.load_state_dict(th.load(os.path.join(os.path.abspath(""),
                                               "checkpoints",
                                               config.model.name,
@@ -210,15 +271,23 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
     u_hat = u_hat.detach().cpu()
     u = u.cpu()
     t = t.cpu()
-    
     pred = np.array(u_hat)
     labels = np.array(u)
 
     # Compute error
     mse = criterion(u_hat, u).item()
     print(f"MSE: {mse}")
-    
-    #
+
+    with open(f"results/{config.model.number}/model.pkl", "wb") as outp:    
+        pickle.dump(model, outp, pickle.HIGHEST_PROTOCOL)
+    np.save(f"results/{config.model.number}/u_hat", u_hat)
+    np.save(f"results/{config.model.number}/u", u)
+    np.save(f"results/{config.model.number}/x", x)
+    np.save(f"results/{config.model.number}/t", t)
+    params.save(f"results/{config.model.number}/params")
+    config.save(f"results/{config.model.number}/config")
+
+
     # Visualize the data
     if config.data.type == "burger" and visualize:
         u_hat = np.transpose(u_hat)
@@ -275,11 +344,72 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
         plt.draw()
         plt.show()
     
-    
-    elif config.data.type == "diffusion_sorption" and visualize:
+    elif config.data.type == "diffusion_ad2ss" and visualize:
         u_hat = np.transpose(u_hat[...,0])
         u = np.transpose(u[...,0])
+
+        fig, ax = plt.subplots(1, 2, figsize=(10, 4))
     
+        # u(t, x) over space
+        h = ax[0].imshow(u, interpolation='nearest', 
+                      extent=[t.min(), t.max(),
+                              x.min(), x.max()],
+                      origin='upper', aspect='auto')
+        divider = make_axes_locatable(ax[0])
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        fig.colorbar(h, cax=cax)
+    
+        ax[0].set_xlim(0, t.max())
+        ax[0].set_ylim(x.min(), x.max())
+        ax[0].legend(loc="upper right")
+        ax[0].set_xlabel('$t$')
+        ax[0].set_ylabel('$x$')
+        ax[0].set_title('$u(t,x)$', fontsize = 10)
+        
+        l = ax[1].imshow(u_hat, interpolation='nearest', 
+                      extent=[t.min(), t.max(),
+                              x.min(), x.max()],
+                      origin='upper', aspect='auto')
+        divider = make_axes_locatable(ax[0])
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        fig.colorbar(l, cax=cax)
+    
+        ax[1].set_xlim(0, t.max())
+        ax[1].set_ylim(x.min(), x.max())
+        ax[1].legend(loc="upper right")
+        ax[1].set_xlabel('$t$')
+        ax[1].set_ylabel('$x$')
+        ax[1].set_title('$u(t,x)$', fontsize = 10)
+        
+        # u(t, x) over time
+        fig, ax = plt.subplots()
+        line1, = ax.plot(x, u[:, 0], 'b-', linewidth=2, label='Exact')
+        line2, = ax.plot(x, u_hat[:, 0], 'ro', linewidth=2, label='Prediction')
+        ax.set_xlabel('$x$')
+        ax.set_ylabel('$u(t,x)$')    
+        ax.set_xlim([x.min(), x.max()])
+        ax.set_ylim([-1.1, 1.1])
+    
+        anim = animation.FuncAnimation(fig,
+                                       animate_1d,
+                                       frames=len(t),
+                                       fargs=(line1, line2, u, u_hat),
+                                       interval=20)
+        plt.tight_layout()
+        plt.draw()
+        plt.show()
+        
+        plt.figure()
+        plt.plot(x,u_hat[:,-1])
+        plt.scatter(x,u[:,-1])
+
+    elif config.data.type == "diffusion_sorption" and visualize:
+        print(u_hat.shape)
+        u_hat = np.transpose(u_hat[...,0])
+        print(u_hat.shape)
+        u = np.transpose(u[...,0])
+        print(u)
+        print(u_hat)
         fig, ax = plt.subplots(1, 2, figsize=(10, 4))
     
         # u(t, x) over space

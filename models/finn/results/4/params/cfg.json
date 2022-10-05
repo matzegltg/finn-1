@@ -1,0 +1,19 @@
+{
+ "porosity": 0.4,
+ "rho_s": 1580,
+ "m_soil": 4022,
+ "k_d": 0.0045,
+ "beta": 0.98,
+ "f": 0.93,
+ "a_k": 0.005,
+ "D_e": 1,
+ "alpha_l": 0.9,
+ "v_e": 3,
+ "init_conc": 32,
+ "kin_sorb": 0.0053,
+ "T_MAX": 30,
+ "T_STEPS": 5000,
+ "X_LEFT": 0,
+ "X_RIGHT": 4,
+ "X_STEPS": 20
+}

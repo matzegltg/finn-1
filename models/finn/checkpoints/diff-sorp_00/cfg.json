@@ -1,0 +1,35 @@
+{
+ "paths": {},
+ "general": {
+  "device": "cpu"
+ },
+ "training": {
+  "save_model": true,
+  "continue_training": false,
+  "epochs": 1,
+  "learning_rate": 0.1
+ },
+ "data": {
+  "type": "diffusion_sorption",
+  "name": "data_train",
+  "noise": 0.0
+ },
+ "model": {
+  "name": "diff-sorp",
+  "number": 0,
+  "layer_sizes": [
+   1,
+   10,
+   20,
+   10,
+   1
+  ]
+ },
+ "results": {
+  "current_epoch": 1,
+  "current_training_error": 0.008169585838913918,
+  "lowest_train_error": 0.008169585838913918,
+  "current_validation_error": 0.008169585838913918,
+  "lowest_validation_error": 0.008169585838913918
+ }
+}

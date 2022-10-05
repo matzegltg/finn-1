@@ -1,0 +1,30 @@
+{
+    "porosity": 0.4,
+    "rho_s": 1580, //g/L
+    "m_soil": 4022, //g
+    "k_d": 0.0045, //L/g, taken from slide 36 of Thomas Bierbaum
+    "beta": 0.98,
+    "f": 0.93, //# ratio instantaneous vs. kinetic sorption (f = 0) -> kinetic sorption
+    "a_k": 0.005, //first order rate consant [1/d], taken from Thomas Bierbaum
+    "D_e": 1, //dm^2/d, 
+    "alpha_l": 0.9, //For calculation of D_x alpha_l neeeded [dm]
+    "v_e": 3, //dm/d (v_e = q/n_e; q corresponds to darcy flux
+    "init_conc": 32, //inital diss. concentration mug/L
+    "kin_sorb": 0.0053, //kinetically sorbed inital concentratiob mug/g 
+    "T_MAX": 30, //d
+    "T_STEPS": 50000,
+    "X_LEFT": 0,
+    "X_RIGHT": 5.5,
+    "X_STEPS": 55,
+
+    "sand": {
+        "bool": true,
+        "top": 7,
+        "bot": 48,
+        "porosity": 0.31,
+        "alpha_l": 0.5,
+        "X_STEPS":5,
+        "v_e": 3.8
+
+    }
+}
