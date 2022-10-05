@@ -3,13 +3,12 @@
 # @Author        :   Matthias Gueltig
 
 """
-This script is a modified version of DS solver. To solve PDE that describes PFAS
+This script is a modified version of DS solver. To solve PDE that describes PFOS
 transport through soil
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import pandas as pd
 from simulator_2ss import Simulator
@@ -22,10 +21,6 @@ from utils.configuration import Configuration
 # general parameters
 TRAIN_DATA = True
 DATASET_NAME = "data"
-
-DATAPOINTS_INITIAL = 15
-DATAPOINTS_BOUNDARY = 50
-DATAPOINTS_COLLOCATION = 10000
 
 def read_exp_velocities():
     # cm/d
@@ -53,23 +48,12 @@ def generate_sample(simulator, visualize, save_data, root_path):
     # Generate a data sample
     sample_c, sample_sk = simulator.generate_sample()
     
-    
+
     if TRAIN_DATA:
 
-        # Randomly draw indices for initial, boundary and collocation points
-        #idcs_init, idcs_bound = draw_indices(
-        #    simulator=simulator,
-        #    n_init=DATAPOINTS_INITIAL,
-        #    n_bound=DATAPOINTS_BOUNDARY,
-        #    n_colloc=DATAPOINTS_COLLOCATION
-        #)
-        
-    
         if visualize:
-            
-            visualize_sample(sample=sample_c, simulator=simulator)
-            visualize_sample(sample=sample_sk, simulator=simulator)
-        
+            visualize_sample(sample_c=sample_c, sample_sk=sample_sk, simulator=simulator)
+
         if save_data:
             write_data_to_file(
                 root_path=root_path,
@@ -77,8 +61,6 @@ def generate_sample(simulator, visualize, save_data, root_path):
                 sample_c=sample_c,
                 sample_sk=sample_sk
             )
-            # List for tuples as train/val/test data
-            data_tuples = []
 
 def write_data_to_file(root_path, simulator, sample_c, sample_sk):
     """
@@ -126,54 +108,21 @@ def write_data_to_file(root_path, simulator, sample_c, sample_sk):
         np.save(file=os.path.join(data_path, "x_series.npy"), arr=simulator.x)
         np.save(file=os.path.join(data_path, "sample_c.npy"), arr=sample_c)
         np.save(file=os.path.join(data_path, "sample_sk.npy"), arr=sample_sk)
-    
-def draw_indices(simulator, n_init, n_bound, n_colloc):
-    """
-    Randomly chooses a specified number of points from the spatiotemporal
-    sample for the initial and boundary conditions as well as collocation
-    points.
-    :param simulator: The simulator that created the sample
-    :param n_init: Number of initial points at t=0
-    :param n_bound: Number of boundary points at x_left and x_right
-    :param n_colloc: Number of collocation points
-    :return: The two-dimensional index arrays(t, x)
-    """
 
-    rng = np.random.default_rng()
-
-    idcs_init = np.zeros((n_init, 2), dtype=np.int)
-    idcs_init[:, 0] = 0
-    idcs_init[:, 1] = rng.choice(len(simulator.x),
-                                 size=n_init,
-                                 replace=False)
-
-    idcs_bound = np.zeros((n_bound, 2), dtype=np.int)
-    idcs_bound[:n_bound//2, 0] = rng.choice(len(simulator.t)//4 + 1,
-                                  size=n_bound//2,
-                                  replace=False)
-    idcs_bound[:n_bound//2, 1] = 0
-    
-    idcs_bound[n_bound//2:, 0] = rng.choice(len(simulator.t)//4 + 1,
-                                  size=n_bound - n_bound//2,
-                                  replace=False)
-    idcs_bound[n_bound//2:, 1] = len(simulator.x) - 1
-
-    return idcs_init, idcs_bound
-
-def visualize_sample(sample, simulator):
+def visualize_sample(sample_c, sample_sk, simulator):
     """
     Method to visualize a single sample. Code taken and modified from
     https://github.com/maziarraissi/PINNs
-    :param sample: The actual data sample for visualization
+    :param sample_c: The actual data sample for visualization
+    .param sample_sk: The kin. sorb. data sample for visualization
     :param simulator: The simulator used for data generation
-    :param idcs_init: The indices of the initial points
-    :param idcs_bound: The indices of the boundary points
     """
-
-    sample = np.transpose(sample)
-    fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-    # u(t, x) over space
-    h = ax[0].imshow(sample, interpolation='nearest', cmap='rainbow', 
+    fig, ax = plt.subplots(1,2, figsize=(10, 4))
+    
+    sample_c = np.transpose(sample_c)
+    
+    # c_w(t, x) over space and time
+    h = ax[0].imshow(sample_c, interpolation='nearest', cmap='rainbow', 
                   extent=[simulator.t.min(), simulator.t.max(),
                           simulator.x.min(), simulator.x.max()],
                   origin='upper', aspect='auto')
@@ -185,139 +134,51 @@ def visualize_sample(sample, simulator):
     ax[0].set_ylim(simulator.x.min(), simulator.x.max())
     ax[0].legend(loc="upper right")
     ax[0].set_xlabel(r'$t [d]$')
-    ax[0].set_ylabel(r'$x [cm]$')
-    ax[0].set_title(r'$u(t,x) [\frac{\mu g}{cm^3}]$', fontsize = 10)
+    ax[0].set_ylabel(r'$x [dm]$')
+    ax[0].set_title(r'$c_w(t,x) [\frac{\mu g}{dm^3}]$', fontsize = 10)
     
-    # u(t, x) over time
-    line, = ax[1].plot(simulator.x, sample[:, 0], 'b-', linewidth=2, label='Exact')
-    ax[1].set_xlabel('$x$')
-    ax[1].set_ylabel('$u(t,x)$')    
-    ax[1].set_xlim([simulator.x.min(), simulator.x.max()])
-    ax[1].set_ylim([0, 1.1])
+    # s_k(t,x) over space and time
+    sample_sk = np.transpose(sample_sk)
 
-    anim = animation.FuncAnimation(fig,
-                                   animate,
-                                   frames=len(simulator.t),
-                                   fargs=(line, sample),
-                                   interval=20)
-    plt.tight_layout()
-    plt.draw()
-    
-    plt.show()
-
-def write_tuples_to_file(root_path, data_tuples, mode):
-    """
-    Writes the data tuples to the according directory in .npy format for
-    training and validation of PINN
-    :param root_path: The root_path of the script
-    :param data_tuples: Array of the train/val tuples
-    :param mode: Any of "train" or "val"
-    
-    """
-    
-    data_path = os.path.join(root_path, DATASET_NAME+"_train")
-    os.makedirs(os.path.join(data_path, mode), exist_ok=True)
-    
-    # Iterate over the data_tuples and write them to separate files
-    for idx, data_tuple in enumerate(data_tuples):
+    h = ax[1].imshow(sample_sk, interpolation='nearest', cmap='rainbow', 
+                extent=[simulator.t.min(), simulator.t.max(),
+                        simulator.x.min(), simulator.x.max()],
+                origin='upper', aspect='auto')
+    divider = make_axes_locatable(ax[1])
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    fig.colorbar(h, cax=cax)
         
-        name = f"{mode}_{str(idx).zfill(5)}.npy"
-        np.save(file=os.path.join(data_path, mode, name), arr=data_tuple)
+    ax[1].set_xlim(0, simulator.t.max())
+    ax[1].set_ylim(simulator.x.min(), simulator.x.max())
+    ax[1].legend(loc="upper right")
+    ax[1].set_xlabel(r'$t [d]$')
+    ax[1].set_ylabel(r'$x [cm]$')
+    ax[1].set_title(r'$s_k(t,x) [\frac{\mu g}{g}]$', fontsize = 10)
 
-def create_data_tuple_init_bound(simulator, sample_c, sample_ct, pair):
-    """
-    Creates a tuple (t, x, sample_c, sample_ct, t_idx, x_idx), where t is the
-    time step, x is the spatial coordinate, sample_c and sample_ct are the 
-    desired model output, and t_idx and x_idx are the indices in the sample for t and x.
-    :param simulator: The simulator that generated the sample
-    :param sample_c: The data sample (dissolved concentration)
-    :param sample_ct: The data sample (total concentration)
-    :param pair: The index pair of the current data points
-    
-    :return: Tuple (t, x, sample_c, sample_ct, t_idx, x_idx)
-    """
-    t_idx, x_idx = pair
-    c = sample_c[t_idx, x_idx]
-    ct = sample_ct[t_idx, x_idx]
-    t, x = simulator.t[t_idx], simulator.x[x_idx]
-    
-    return np.array((t, x, c, ct, t_idx, x_idx), dtype=np.float32)
-
-def create_data_tuple_colloc(simulator, sample_c, sample_ct):
-    """
-    Creates a tuple (t, x, sample_c, sample_ct, t_idx, x_idx), where t is the
-    time step, x is the spatial coordinate, sample_c and sample_ct are the 
-    desired model output, and t_idx and x_idx are the indices in the sample for t and x.
-    :param simulator: The simulator that generated the sample
-    :param sample_c: The data sample (dissolved concentration)
-    :param sample_ct: The data sample (total concentration)
-    
-    :return: Tuple (t, x, sample_c, sample_ct, t_idx, x_idx)
-    """
-    t = np.arange(len(simulator.t)//2 + 1)
-    x = np.arange(len(simulator.x))
-    
-    t, x = np.meshgrid(t,x)
-    
-    pair = np.hstack((t.flatten()[:,None],x.flatten()[:,None]))
-    idx = np.random.choice(len(pair), DATAPOINTS_COLLOCATION , replace=False)
-    
-    t_idx = pair[idx,0]
-    x_idx = pair[idx,1]
-    
-    c = sample_c[t_idx, x_idx]
-    ct = sample_ct[t_idx, x_idx]
-    
-    t, x = simulator.t[t_idx], simulator.x[x_idx]
-    
-    return np.array((t, x, c, ct, t_idx, x_idx), dtype=np.float32)
-
-def animate(t, axis, field):
-    """
-    Data animation function animating an image over time.
-    :param t: The current time step
-    :param axis: The matplotlib image object
-    :param field: The data field
-    :return: The matplotlib image object updated with the current time step's
-        image date
-    """
-    axis.set_ydata(field[:, t])
-  
+    plt.show()
 
 def main():
     """
     Main method used to create the datasets.
     """
+
     ##############
     # PARAMETERS #
     ##############
     
     # Determine the root path for this script and set up a path for the data
     root_path = os.path.abspath("")
-    
+
     params = Configuration("params.json")
 
-    T_STEPS = params.T_STEPS
-    X_STEPS = params.X_STEPS
-
-    # read experimental velocities 
-    exp_velocities = False
-
-    if exp_velocities:
-        v, meas_day = read_exp_velocities()
-    else:
-        # velocity = q/n_e
-        v = params.v_e
-        meas_day = 1
-
-    # mug/l
-    init_conc = params.init_conc
-    s_k_0 = params.kin_sorb
+    # velocity = q/n_e
+    v = params.v_e
 
     SAVE_DATA = True
     VISUALIZE_DATA = True
     
-    if params.sand.bool:
+    sand = True 
+    if sand:
         simulator = Simulator(
             d_e=params.D_e,
             n_e=params.porosity,
@@ -325,17 +186,16 @@ def main():
             beta=params.beta,
             f=params.f,
             k_d=params.k_d,
-            cw_0=init_conc,
+            cw_0=params.init_conc,
             t_max=params.T_MAX,
             t_steps=params.T_STEPS,
-            x_left=params.X_LEFT,
-            x_right=params.X_RIGHT,
-            x_steps=X_STEPS,
+            x_right=params.X_LENGTH,
+            x_steps=params.X_STEPS,
             v=v,
             a_k=params.a_k,
-            m_soil=params.m_soil,
             alpha_l = params.alpha_l,
-            s_k_0 = s_k_0,
+            s_k_0 = params.kin_sorb,
+            sand=sand,
             n_e_sand = params.sand.porosity,
             x_start_soil= params.sand.top,
             x_stop_soil = params.sand.bot,
@@ -345,26 +205,24 @@ def main():
             )
 
     else:
-        # Create a wave generator using the parameters from the configuration file
-        simulator = Simulator(d_e=params.D_e,
-        exp_v = exp_velocities,
-        n_e=params.porosity,
-        meas_day=meas_day,
-        rho_s=params.rho_s,
-        beta=params.beta,
-        f=params.f,
-        k_d=params.k_d,
-        cw_0=init_conc,
-        t_max=params.T_MAX,
-        t_steps=params.T_STEPS,
-        x_left=params.X_LEFT,
-        x_right=params.X_RIGHT,
-        x_steps=X_STEPS,
-        v=v,
-        a_k=params.a_k,
-        m_soil=params.m_soil,
-        alpha_l = params.alpha_l,
-        s_k_0 = s_k_0)
+        simulator = Simulator(
+            d_e=params.D_e,
+            n_e=params.porosity,
+            rho_s=params.rho_s,
+            beta=params.beta,
+            f=params.f,
+            k_d=params.k_d,
+            cw_0=params.init_conc,
+            t_max=params.T_MAX,
+            t_steps=params.T_STEPS,
+            x_right=params.X_LENGTH,
+            x_steps=params.X_STEPS,
+            v=v,
+            a_k=params.a_k,
+            alpha_l=params.alpha_l,
+            s_k_0 = params.kin_sorb,
+            sand=sand
+        )
 
     # Create train, validation and test data
     generate_sample(simulator=simulator,
