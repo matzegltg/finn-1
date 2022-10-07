@@ -303,13 +303,18 @@ def __vis_ct_diff_old(model, u_hat, u, t, x):
 
     plt.show()
 
-def comp_ret(model, u_hat, u, t, x, number):
+def comp_ret_soil(model, u_hat, u, t, x, number):
 
     params = Configuration(f"results/{number}/params/cfg.json")
 
     # exakt solution
     sk = np.transpose(u[...,1])
     cw = np.transpose(u[...,0])
+
+    if params.sandbool:
+        sk = sk[params.sand.top:params.sand.bot]
+        cw = cw[params.sand.top:params.sand.bot]
+
     k_d = params.k_d
     beta = params.beta
     f = params.f
@@ -318,6 +323,11 @@ def comp_ret(model, u_hat, u, t, x, number):
     # approx FINN sol
     cw_hat = np.transpose(u_hat[...,0])
     sk_hat = np.transpose(u_hat[...,1])
+
+    if params.sandbool:
+        cw_hat = cw_hat[params.sand.top:params.sand.bot]
+        sk_hat = sk_hat[params.sand.top:params.sand.bot]
+
     beta_hat = model.beta.item()
     k_d_hat = model.k_d.item()
     f_hat = model.f.item()
@@ -328,8 +338,8 @@ def comp_ret(model, u_hat, u, t, x, number):
     # plot sk over cw
     for timestep in range(0,len(t)):
         if timestep%500 == 0:
-            ax[0].plot(cw[:,timestep], sk[:,timestep], label=f"FD: {timestep}")
-            ax[0].plot(cw_hat[:, timestep], sk_hat[:,timestep], "--", label=f"FINN: {timestep}")
+            ax[0].plot(cw[:,timestep], sk[:,timestep], label=f"FD: {timestep}", alpha=0.9)
+            ax[0].plot(cw_hat[:, timestep], sk_hat[:,timestep], "--", label=f"FINN: {timestep}", alpha=0.9)
 
     ax[0].set_xlabel("$c_w$")
     ax[0].set_ylabel("$s_k$")
@@ -355,8 +365,57 @@ def load_model(number):
     vis_sol(model, u_hat, u, t, x)
     vis_diff(model, u_hat, u, t, x)
     vis_sorption(model, u_hat, u, t,x, number)
-    comp_ret(model, u_hat, u, t, x, number)
+    comp_ret_soil(model, u_hat, u, t, x, number)
+
 
 if __name__ == "__main__":
-    load_model(number=5)
+    load_model(number=7)
+
+# Method to vis sk/se over cw inclusive sand -> anything to see?
+def __comp_ret_total(model, u_hat, u, t, x, number):
+
+    params = Configuration(f"results/{number}/params/cfg.json")
+
+    # exakt solution
+    sk = np.transpose(u[...,1])
+    cw = np.transpose(u[...,0])
+    k_d = params.k_d
+    beta = params.beta
+    f = params.f
+    se = f*k_d*cw**beta
+
+    # approx FINN sol
+    cw_hat = np.transpose(u_hat[...,0])
+    sk_hat = np.transpose(u_hat[...,1])
+    beta_hat = model.beta.item()
+    k_d_hat = model.k_d.item()
+    f_hat = model.f.item()
+    se_hat = f_hat*k_d_hat*cw_hat**beta_hat
+
+
+    fig, ax = plt.subplots(1,2)
+    # plot sk over cw
+    for timestep in range(0,len(t)):
+        if timestep%500 == 0:
+            print(cw[:,timestep].shape)
+            print(sk[:,timestep].shape)
+            ax[0].scatter(cw[:,timestep], sk[:,timestep], label=f"FD: {timestep}")
+            ax[0].scatter(cw_hat[:, timestep], sk_hat[:,timestep], label=f"FINN: {timestep}")
+
+    ax[0].set_xlabel("$c_w$")
+    ax[0].set_ylabel("$s_k$")
+    ax[0].set_title("kin. sorb. isotherms (after #dt)")
+    ax[0].legend()
     
+    # plot se over cw
+    for timestep in range(0,len(t)):
+        if timestep%500 == 0:
+            ax[1].plot(cw[:,timestep], se[:,timestep], label=f"FD: {timestep}")
+            ax[1].plot(cw_hat[:, timestep], se_hat[:,timestep], "--", label=f"FINN: {timestep}")
+    
+    #ax[1].legend()
+    ax[1].set_xlabel("$c_w$")
+    ax[1].set_ylabel("$s_e$")
+    ax[1].set_title("inst. sorb. isotherms (after #dt)")
+    ax[1].legend()
+    plt.show()

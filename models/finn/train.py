@@ -117,7 +117,8 @@ def run_training(print_progress=True, model_number=None):
         t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
                       dtype=th.float).to(device=device)
         x = np.load(os.path.join(data_path, "x_series.npy"))
-
+        
+        # TODO: Interpolation of experimental data
         if config.expdata:
             # cm/d
             # get velocities
@@ -184,14 +185,14 @@ def run_training(print_progress=True, model_number=None):
             layer_sizes = config.model.layer_sizes,
             device = device,
             mode="train",
-            learn_coeff=True,
-            learn_f=True,
+            learn_coeff=False,
+            learn_f=False,
             learn_sk=True,
             learn_f_hyd=True,
-            learn_g_hyd=True,
-            learn_r_hyd=True,
-            learn_ve=True,
-            learn_k_d=True,
+            learn_g_hyd=False,
+            learn_r_hyd=False,
+            learn_ve=False,
+            learn_k_d=False,
             t_steps=len(t),
             rho_s = np.array(params.rho_s),
             f = np.array(params.f),
@@ -200,6 +201,15 @@ def run_training(print_progress=True, model_number=None):
             n_e = np.array(params.porosity),
             alpha = np.array(params.a_k),
             v_e = np.array(params.v_e),
+            sand=params.sandbool,
+            D_sand = np.array(params.sand.alpha_l*params.sand.v_e),
+            n_e_sand = np.array(params.sand.porosity),
+            x_start_soil = np.array(params.sand.top),
+            x_stop_soil = np.array(params.sand.bot),
+            x_steps_soil = np.array(params.sand.X_STEPS),
+            x_steps_sand = np.array(params.sand.alpha_l),
+            alpha_l_sand = np.array(params.sand.alpha_l),
+            v_e_sand = np.array(params.sand.v_e),
             config=None,
             learn_stencil=False,
             bias=True,
@@ -350,18 +360,13 @@ def run_training(print_progress=True, model_number=None):
 
             u_hat = model(t=t, u=u)
 
-
             if config.expdata:
                 mse = criterion(u_hat[:,-1,0], u[:,-1,0])
             else:
-                mse = criterion(u, u_hat)
+                mse = criterion(u_hat, u)
 
            
-            mse.backward()
-            #print(f"uhat: {u_hat}")
-            #print(mse.item())
-            #print(model.D)
-            
+            mse.backward()            
             print(mse)
             return mse
         

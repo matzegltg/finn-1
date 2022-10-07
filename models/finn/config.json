@@ -8,20 +8,20 @@
 
 	"training": {
 		"save_model": true,
-		"continue_training": true,
+		"continue_training": false,
 		"epochs": 1,
 		"learning_rate": 1
 	},
 
 	"data": {
 		"type": "diffusion_ad2ss",  // "burger", "burger_2d" "diffusion_sorption", "diffusion_reaction", "allen_cahn", "diffusion_ad2ss"
-		"name": "data_ext", // "data_train", "data_ext", "data_test"
+		"name": "data_train", // "data_train", "data_ext", "data_test"
 		"noise": 0
 	},
 
 	"model": {
 		"name": "diff-ad2ss",  // "burger", "burger_2d", "diff-sorp", "diff-react", "allen-cahn", "diff-ad2ss"
-		"number": 5,  // The i-th model
+		"number": 7,  // The i-th model
 		"layer_sizes": [2, 20, 20, 20, 1] // [1, 10, 20, 10, 1] for burger, burger_2d, diffusion_sorption, and allen_cahn, [2, 20, 20, 20, 2] for diffusion_reaction, [2, 20,20,20,1] for diff_ad2ss
 	},
 

@@ -64,6 +64,8 @@ class Simulator(object):
 
             self.v = np.ndarray(self.x_steps)
             self.v[:self.x_start] = v_e_sand
+
+
             self.v[self.x_start:self.x_stop] = v
             self.v[self.x_stop:] = v_e_sand
 
@@ -73,6 +75,7 @@ class Simulator(object):
 
             self.disp = np.ndarray(self.x_steps)
             self.disp[:self.x_start] = disp_sand
+
             self.disp[self.x_start:self.x_stop] = disp_soil
             self.disp[self.x_stop:] = disp_sand
 
@@ -145,7 +148,7 @@ class Simulator(object):
         for i in range(len(self.t)-1):
             # To observe solution status
             if i%10000 == 0:
-                print(i)
+                pass
             u[:,i+1] = u[:,i] + self.dt*self.ad_ode(t=i, conc_cw_sk=u[:,i])
 
         return u
@@ -161,7 +164,6 @@ class Simulator(object):
         # split u in cw and sk
         cw = conc_cw_sk[:self.x_steps]
         sk = conc_cw_sk[self.x_steps:]
-        
 
         # setups boundarys for cw which are not accesed by fd and lap
         # in case nothing else is needed put zeros in the array
@@ -174,30 +176,41 @@ class Simulator(object):
             sk_soil = sk[self.x_start:self.x_stop]
             cw_soil = cw[self.x_start:self.x_stop]
 
-            inhomog = np.zeros(self.x_steps)
-            div = np.ones(self.x_steps)
+            f_hyd = np.zeros(self.x_steps)
+            g_hyd = np.zeros(self.x_steps)
+            ret = np.ones(self.x_steps)
 
             # create inhomogenous and divisor values for soil area
-            inhomog[self.x_start:self.x_stop] = self.a_k * \
-                ((1-self.f)*self.sorpt_isotherm(cw_soil)-sk_soil)
-            div[self.x_start:self.x_stop] = self.f*self.sorpt_derivat(cw_soil)* \
+            f_hyd[self.x_start:self.x_stop] = -self.a_k * \
+                (1-self.f)*(self.k_d*cw_soil**(self.beta-1))*(self.rho_s/self.n_e)
+            g_hyd[self.x_start:self.x_stop] = self.a_k * self.rho_s/self.n_e * sk_soil
+            ret[self.x_start:self.x_stop] = self.f*self.sorpt_derivat(cw_soil)* \
                 (self.rho_s/self.n_e) + 1
 
             # calculate change of cw and sk over over time
             cw_new = (self.disp*np.matmul(self.lap, cw) + dif_bound \
-                -self.v * np.matmul(self.fd, cw) - inhomog)/div
-            
+                -self.v * np.matmul(self.fd, cw) + f_hyd*cw+g_hyd)/ret
+
             sk_new = np.zeros(self.x_steps)
-            sk_new[self.x_start:self.x_stop] = self.a_k * \
-                ((1-self.f)* self.sorpt_isotherm(cw_soil)-sk_soil)*(self.rho_s/self.n_e)
+            sk_new[self.x_start:self.x_stop] = -f_hyd[self.x_start:self.x_stop]\
+                *(self.n_e/self.rho_s)*cw_soil- g_hyd[self.x_start:self.x_stop]\
+                    *(self.n_e/self.rho_s)
+            
 
         else:
-            inhomog = self.a_k*((1-self.f)*self.sorpt_isotherm(cw)-sk)*(self.rho_s/self.n_e)
-            div = (self.f*self.sorpt_derivat(cw)*(self.rho_s/self.n_e))+1
+            f_hyd = np.zeros(self.x_steps)
+            g_hyd = np.zeros(self.x_steps)
+            ret = np.ones(self.x_steps)
+
+            f_hyd = -self.a_k * \
+                (1-self.f)*(self.k_d*cw**(self.beta-1))*(self.rho_s/self.n_e)
+            g_hyd = self.a_k * self.rho_s/self.n_e * sk
+            ret = (self.f*self.sorpt_derivat(cw)*(self.rho_s/self.n_e))+1
 
             cw_new = (self.disp*np.matmul(self.lap, cw) + dif_bound \
-            - self.v*np.matmul(self.fd, cw) - inhomog)/div
-            sk_new = self.a_k*((1-self.f)*self.sorpt_isotherm(cw)-sk)
+            - self.v*np.matmul(self.fd, cw) +f_hyd*cw+g_hyd)/ret
+
+            sk_new = -f_hyd*(self.n_e/self.rho_s)*cw-g_hyd*(self.n_e/self.rho_s)
         
             
         conc_cw_sk_new = np.ndarray(self.x_steps*2)

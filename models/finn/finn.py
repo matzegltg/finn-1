@@ -78,7 +78,7 @@ class FINN(nn.Module):
         
         self.device = device
         self.Nx = u.size()[1]
-        self.BC = th.tensor(BC, dtype=th.float).to(device=self.device)
+        self.BC = th.tensor(BC, dtype=th.double).to(device=self.device)
         self.layer_sizes = layer_sizes
         self.mode = mode
         self.cfg = config
@@ -87,21 +87,21 @@ class FINN(nn.Module):
         
         
         if not learn_coeff:
-            self.D = th.tensor(D, dtype=th.float, device=self.device)
+            self.D = th.tensor(D, dtype=th.double, device=self.device)
         else:
             # #sets as learnable parameter
-            self.D = nn.Parameter(th.tensor(D, dtype=th.float,
+            self.D = nn.Parameter(th.tensor(D, dtype=th.double,
                                             device=self.device))
         
         if not learn_stencil:
-            self.stencil = th.tensor([-1.0, 1.0], dtype=th.float,
+            self.stencil = th.tensor([-1.0, 1.0], dtype=th.double,
                                      device=self.device)
         else:
             self.stencil = th.tensor(
                 # # learnable stencil, mean=-1.0, std=0.1
                 [th.normal(th.tensor([-1.0]), th.tensor([0.1])),
                  th.normal(th.tensor([1.0]), th.tensor([0.1]))],
-                dtype=th.float, device=self.device)
+                dtype=th.double, device=self.device)
             self.stencil = nn.Parameter(self.stencil)
     
     def function_learner(self):
@@ -280,7 +280,7 @@ class FINN_DiffSorp(FINN):
         # Initialize the function_learner to learn the retardation factor function
         self.func_nn = self.function_learner().to(device=self.device)
         # Initialize the multiplier of the retardation factor function (denormalization)
-        self.p_exp = nn.Parameter(th.tensor([10],dtype=th.float))
+        self.p_exp = nn.Parameter(th.tensor([10],dtype=th.double))
         
     
     """
@@ -402,9 +402,12 @@ class FINN_DiffAD2ss(FINN):
     This class inherits all parameter from the parent FINN class.
     """
     def __init__(self, u, D, BC, dx, layer_sizes, device, rho_s, f, k_d, beta, n_e, 
-                alpha, v_e, t_steps, learn_f_hyd, learn_r_hyd, learn_g_hyd, mode="train",
-                 config=None, learn_coeff=True, learn_stencil=False, bias=True,
-                 sigmoid=True, learn_f=False, learn_sk=True, learn_k_d=True, learn_ve=True):
+                alpha, v_e, t_steps, learn_f_hyd, learn_r_hyd, learn_g_hyd, sand, 
+                D_sand=None,
+                n_e_sand=None, x_start_soil=None, x_stop_soil=None, x_steps_soil=None,
+                x_steps_sand=None, alpha_l_sand=None, v_e_sand=None, mode="train",
+                config=None, learn_coeff=True, learn_stencil=False, bias=True,
+                sigmoid=True, learn_f=False, learn_sk=True, learn_k_d=True, learn_ve=True):
         
         super().__init__(u, D, BC, layer_sizes, device, mode, config, learn_coeff,
                          learn_stencil, bias, sigmoid)
@@ -432,47 +435,57 @@ class FINN_DiffAD2ss(FINN):
         """
         # potentially learnable parameters
         if not learn_f:
-            self.f = th.tensor(f, dtype=th.float, device=self.device)
+            self.f = th.tensor(f, dtype=th.double, device=self.device)
         else:
-            self.f = nn.Parameter(th.tensor(f, dtype=th.float,
+            self.f = nn.Parameter(th.tensor(f, dtype=th.double,
                                             device=self.device))
         if not learn_k_d:
-            self.k_d = th.tensor(k_d,dtype=th.float, device=self.device)
+            self.k_d = th.tensor(k_d,dtype=th.double, device=self.device)
         else:
-            self.k_d = nn.Parameter(th.tensor(k_d, dtype=th.float, device=self.device))
+            self.k_d = nn.Parameter(th.tensor(k_d, dtype=th.double, device=self.device))
 
         if not learn_ve:
-            self.v_e = th.tensor(v_e, dtype=th.float, device=self.device)
+            self.v_e = th.tensor(v_e, dtype=th.double, device=self.device)
         else:
-            self.v_e = nn.Parameter(th.tensor(v_e, dtype=th.float, device=self.device))
+            self.v_e = nn.Parameter(th.tensor(v_e, dtype=th.double, device=self.device))
 
         if learn_sk:
             self.func_sk = self.function_learner().to(device=self.device)
-            self.sk_fac = nn.Parameter(th.tensor([1.0], dtype=th.float))
+            self.sk_fac = nn.Parameter(th.tensor([1.0], dtype=th.double))
         if learn_f_hyd:
             self.func_f = self.function_learner().to(device=self.device)
-            self.f_fac = nn.Parameter(th.tensor([1.0], dtype=th.float))
+            self.f_fac = nn.Parameter(th.tensor([1.0], dtype=th.double))
         if learn_r_hyd:
             self.func_r = self.function_learner().to(device=self.device)
-            self.ret_fac = nn.Parameter(th.tensor([1.0], dtype=th.float))
+            self.ret_fac = nn.Parameter(th.tensor([1.0], dtype=th.double))
 
         if learn_g_hyd:
             self.func_g = self.function_learner().to(device=self.device)
-            self.g_fac = nn.Parameter(th.tensor([1.0], dtype=th.float))
+            self.g_fac = nn.Parameter(th.tensor([1.0], dtype=th.double))
         
         
         # For testing FV solver without optimization
-        #self.z = nn.Parameter(th.tensor([10],dtype=th.float, requires_grad=True))
+        #self.z = nn.Parameter(th.tensor([0],dtype=th.double, requires_grad=True))
         # potentially non-learnable parameters
-        self.dx = th.tensor(dx, dtype=th.float, device=self.device)
-        self.rho_s = th.tensor(rho_s, dtype=th.float, device=self.device)        
-        self.beta = th.tensor(beta, dtype=th.float, device=self.device)
-        self.n_e  = th.tensor(n_e, dtype=th.float, device=self.device)
-        self.alpha = th.tensor(alpha, dtype = th.float, device=self.device)
+        self.dx = th.tensor(dx, dtype=th.double, device=self.device)
+        self.rho_s = th.tensor(rho_s, dtype=th.double, device=self.device)        
+        self.beta = th.tensor(beta, dtype=th.double, device=self.device)
+        self.n_e  = th.tensor(n_e, dtype=th.double, device=self.device)
+        self.alpha = th.tensor(alpha, dtype = th.double, device=self.device)
         self.learn_sk = learn_sk
         self.learn_f_hyd = learn_f_hyd
         self.learn_g_hyd = learn_g_hyd
         self.learn_r_hyd = learn_r_hyd
+        self.sand = sand
+        if self.sand:
+            self.D_sand = th.tensor(D_sand, dtype=th.double, device=self.device)
+            self.n_e_sand = th.tensor(n_e_sand, dtype=th.double, device=self.device)
+            self.x_start = th.tensor(x_start_soil, dtype=th.int, device=self.device)
+            self.x_stop = th.tensor(x_stop_soil, dtype=th.int, device=self.device)
+            self.x_steps_soil = th.tensor(x_steps_soil, dtype=th.int, device=self.device)
+            self.x_steps_sand = th.tensor(x_steps_sand, dtype=th.int, device=self.device)
+            self.alpha_l_sand = th.tensor(alpha_l_sand, dtype=th.double, device=self.device)
+            self.v_e_sand = th.tensor(v_e_sand, dtype=th.double, device=self.device)
         
         # counter for time dependent neural network
         # which of the timestep input feature should be used. The others are 
@@ -496,92 +509,197 @@ class FINN_DiffAD2ss(FINN):
         c = u[...,0]
         sk = u[...,1]
 
-        
-        # Approximate the first order flux multiplier
-        #a = self.func_nn(c.unsqueeze(-1))
-        a = th.ones([self.Nx,1], dtype=th.float64)*self.v_e
-        # Apply the ReLU function for upwind scheme to prevent numerical
-        # instability
-        a_plus = th.relu(a[...,0])
-        
-        # a_min = -0 since a = 30
-        a_min = -th.relu(-a[...,0])
-        
-        ## Calculate fluxes at the top boundary of control volumes i
+        if self.sand:
+            
+            cw_soil= c[self.x_start:self.x_stop]
+            sk_soil = sk[self.x_start:self.x_stop]
 
-        # Calculate the flux at the top domain boundary
-        top_bound_flux = (self.D/(self.dx**2)*(self.stencil[0]*c[0] +
+            v_soil = self.v_e
+            v_soil_plus = th.relu(v_soil)
+            v_soil_min = -th.relu(-v_soil)
+
+            v_sand = self.v_e_sand
+            v_sand_plus = th.relu(v_sand)
+            v_sand_min = -th.relu(-v_sand)
+            
+
+            # top boundary fluxes
+            top_bound_flux = (self.D_sand/(self.dx**2)*(self.stencil[0]*c[0] +
                             self.stencil[1]*self.BC[0]) -\
-                            a_plus[0]/self.dx*(-self.stencil[0]*c[0] -
+                            v_sand_plus/self.dx*(-self.stencil[0]*c[0] -
                             self.stencil[1]*self.BC[0])).unsqueeze(0)
+
+            # start: 7, stop: 48, X_STEPS: 56
+            # c[:self.x_start-1] = c1 ... c6
+            # c[1:self.x_start] = c2 ... c7
+            # c[self.x_start:self.x_stop] = c8 ... c48
+            # c[self.x_stop+1:] = c50 ... c56
+            # c[self.x_stop:-1] = c49 ... c55
+            # c[self.x_stop:]) = c49 ... c56
+            top_flux_sand_top = self.D_sand/(self.dx**2)*(self.stencil[0]*c[1:self.x_start] +
+                            self.stencil[1]*c[:self.x_start-1]) -\
+                            v_sand_plus/self.dx*(-self.stencil[0]*c[1:self.x_start] -
+                            self.stencil[1]*c[:self.x_start-1])
+            top_flux_soil = self.D/(self.dx**2)*(self.stencil[0]*c[self.x_start:self.x_stop] +
+                            self.stencil[1]*c[self.x_start-1:self.x_stop-1]) -\
+                            v_soil_plus/self.dx*(-self.stencil[0]*c[self.x_start:self.x_stop] -
+                            self.stencil[1]*c[self.x_start-1:self.x_stop-1])
+            top_flux_sand_bot = self.D_sand/self.dx**2 * (self.stencil[0]*c[self.x_stop:]+self.stencil[1]*c[self.x_stop-1:-1]) - \
+                v_sand_plus/self.dx * (-self.stencil[0]*c[self.x_stop:]-self.stencil[1]*c[self.x_stop-1:-1])
+            
+            top_flux = th.cat((top_bound_flux, top_flux_sand_top, top_flux_soil, top_flux_sand_bot))
+
+            # bot boundary fluxes
+            bot_flux_sand_top = self.D_sand/self.dx**2 *(self.stencil[0]*c[:self.x_start]+self.stencil[1]*c[1:self.x_start+1]) - \
+                v_sand_min/self.dx * (self.stencil[0]*c[:self.x_start]+self.stencil[1]*c[1:self.x_start+1])
+            bot_flux_soil = self.D/self.dx**2 *(self.stencil[0]*c[self.x_start:self.x_stop] + self.stencil[1]*c[self.x_start+1:self.x_stop+1]) - \
+                v_soil_min/self.dx * (self.stencil[0]*c[self.x_start:self.x_stop] + self.stencil[1]*c[self.x_start+1:self.x_stop+1])
+            bot_flux_sand_bot = self.D_sand/self.dx**2 * (self.stencil[0]*c[self.x_stop:-1]+self.stencil[1]*c[self.x_stop+1:]) - \
+                v_sand_min/self.dx * (self.stencil[0]*c[self.x_stop:-1]+self.stencil[1]*c[self.x_stop+1:])
+            bot_bound_flux = th.tensor(0).unsqueeze(0)
+
+            bot_flux = th.cat((bot_flux_sand_top, bot_flux_soil, bot_flux_sand_bot, bot_bound_flux))
+    
+            if not self.learn_sk:
+                sk  = sk
                 
-        # Calculate the fluxes between control volumes i and their top neighbors
-        top_neighbors = self.D/(self.dx**2)*(self.stencil[0]*c[1:] +
-                            self.stencil[1]*c[:-1]) -\
-                            a_plus[1:]/self.dx*(-self.stencil[0]*c[1:] -
-                            self.stencil[1]*c[:-1])
-        
-        # Concatenate the left fluxes
-        top_flux = th.cat((top_bound_flux, top_neighbors))
-        ## Calculate fluxes at the right boundary of control volumes i
-        
-        # Calculate the flux at the right domain boundary -> Neumann -> zero??
-        bot_bound_flux = th.tensor(0).unsqueeze(0)
-        
-        # Calculate the fluxes between control volumes i and their right neighbors
-        bot_neighbors = self.D/(self.dx**2)*(self.stencil[0]*c[:-1] +
-                            self.stencil[1]*c[1:]) -\
-                            a_min[:-1]/self.dx*(self.stencil[0]*c[:-1] + \
-                            self.stencil[1]*c[1:])
-        
-        # Concatenate the right fluxes
-        bot_flux = th.cat((bot_neighbors, bot_bound_flux))
+            else:    
+                time_vec = th.ones([self.Nx])*t
+                t_c = th.stack((c.float(),time_vec), dim=1)
+                sk = self.func_sk(t_c)*th.abs(self.sk_fac)
+                sk = sk.squeeze(-1)
+                
+            if not self.learn_f_hyd:
+                f_hyd = th.zeros(self.Nx)
+                f_hyd[self.x_start:self.x_stop] = -self.alpha*self.rho_s/self.n_e*(1-self.f)*(self.k_d*cw_soil**(self.beta-1))
+                
+            else:
+                time_vec = th.ones([self.Nx])*t
+                t_c = th.stack((c.float(),time_vec), dim=1)
+                f_hyd = self.func_f(t_c)*self.f_fac
+                f_hyd = f_hyd.squeeze(-1)
+            
+            if not self.learn_r_hyd:
+                ret = th.ones(self.Nx)
+                ret[self.x_start:self.x_stop] = (self.f*(self.k_d*self.beta*cw_soil**(self.beta-1))*(self.rho_s/self.n_e))+1
 
-        if not self.learn_sk:
-            sk  = sk
+            else:
+                time_vec = th.ones([self.Nx])*t
+                t_c = th.stack((c.float(), time_vec), dim=1)
+
+                # phsics informed: ret > 1 and larger than sigmoid output ([0,1])
+                ret = 1+self.func_r(t_c)*(10**self.ret_fac)
+                ret = ret.squeeze(-1)
             
-        else:    
-            time_vec = th.ones([self.Nx])*t
-            t_c = th.stack((c.float(),time_vec), dim=1)
-            sk = self.func_sk(t_c)*th.abs(self.sk_fac)
-            sk = sk.squeeze(-1)
+            if not self.learn_g_hyd:
+                g_hyd = th.zeros(self.Nx)
+                g_hyd[self.x_start:self.x_stop] = self.alpha*self.rho_s/self.n_e*sk_soil
+                
+            else:
+                time_vec = th.ones([self.Nx])*t
+                t_c = th.stack((c.float(), time_vec), dim=1)
+                g_hyd = self.func_g(t_c)*th.abs(self.g_fac)
+                g_hyd = g_hyd.squeeze(-1)
             
-        if not self.learn_f_hyd:
-            f_hyd = -self.alpha*self.rho_s/self.n_e*(1-self.f)*(self.k_d*c**(self.beta-1))
+            # Integrate the fluxes at all boundaries of control volumes i
+            flux_c = (top_flux + bot_flux+f_hyd*c+g_hyd)/ret
+            th.set_printoptions(precision=10)
             
+
+            # total concentration
+            flux_sk=th.zeros(self.Nx)
+            flux_sk[self.x_start:self.x_stop] = -f_hyd[self.x_start:self.x_stop]\
+                *(self.n_e/self.rho_s)*cw_soil-g_hyd[self.x_start:self.x_stop]\
+                    *(self.n_e/self.rho_s)
+            #print(flux_sk)
+            #time.sleep(2)
+            flux = th.stack((flux_c, flux_sk), dim=len(c.size()))
+            return flux
+
         else:
-            time_vec = th.ones([self.Nx])*t
-            t_c = th.stack((c.float(),time_vec), dim=1)
-            f_hyd = self.func_f(t_c)*self.f_fac
-            f_hyd = f_hyd.squeeze(-1)
-        
-        if not self.learn_r_hyd:
-            ret = (self.f*(self.k_d*self.beta*c**(self.beta-1))*(self.rho_s/self.n_e))+1
-
-        else:
-            time_vec = th.ones([self.Nx])*t
-            t_c = th.stack((c.float(), time_vec), dim=1)
-
-            # phsics informed: ret > 1 and larger than sigmoid output ([0,1])
-            ret = 1+self.func_r(t_c)*(10**self.ret_fac)
-            ret = ret.squeeze(-1)
-        
-        if not self.learn_g_hyd:
-            g_hyd = self.alpha*self.rho_s/self.n_e*sk
+            a = th.ones([self.Nx,1], dtype=th.double, device=self.device)*self.v_e
+            # Apply the ReLU function for upwind scheme to prevent numerical
+            # instability
+            a_plus = th.relu(a[...,0])
             
-        else:
-            time_vec = th.ones([self.Nx])*t
-            t_c = th.stack((c.float(), time_vec), dim=1)
-            g_hyd = self.func_g(t_c)*th.abs(self.g_fac)
-            g_hyd = g_hyd.squeeze(-1)
+            # a_min = -0 since a = 30
+            a_min = -th.relu(-a[...,0])
             
-        # Integrate the fluxes at all boundaries of control volumes i
-        flux_c = (top_flux + bot_flux+f_hyd*c+g_hyd)/ret
+            ## Calculate fluxes at the top boundary of control volumes i
 
-        # total concentration
-        flux_sk = -f_hyd*(self.n_e/self.rho_s)*c-g_hyd*(self.n_e/self.rho_s)
-        flux = th.stack((flux_c, flux_sk), dim=len(c.size()))
-        return flux
+            # Calculate the flux at the top domain boundary
+            top_bound_flux = (self.D/(self.dx**2)*(self.stencil[0]*c[0] +
+                                self.stencil[1]*self.BC[0]) -\
+                                a_plus[0]/self.dx*(-self.stencil[0]*c[0] -
+                                self.stencil[1]*self.BC[0])).unsqueeze(0)
+                    
+            # Calculate the fluxes between control volumes i and their top neighbors
+            top_neighbors = self.D/(self.dx**2)*(self.stencil[0]*c[1:] +
+                                self.stencil[1]*c[:-1]) -\
+                                a_plus[1:]/self.dx*(-self.stencil[0]*c[1:] -
+                                self.stencil[1]*c[:-1])
+            
+            # Concatenate the left fluxes
+            top_flux = th.cat((top_bound_flux, top_neighbors))
+            ## Calculate fluxes at the right boundary of control volumes i
+            
+            # Calculate the flux at the right domain boundary -> Neumann -> zero??
+            bot_bound_flux = th.tensor(0).unsqueeze(0)
+            
+            # Calculate the fluxes between control volumes i and their right neighbors
+            bot_neighbors = self.D/(self.dx**2)*(self.stencil[0]*c[:-1] +
+                                self.stencil[1]*c[1:]) -\
+                                a_min[:-1]/self.dx*(self.stencil[0]*c[:-1] + \
+                                self.stencil[1]*c[1:])
+            
+            # Concatenate the right fluxes
+            bot_flux = th.cat((bot_neighbors, bot_bound_flux))
+            
+            if not self.learn_sk:
+                sk  = sk
+                
+            else:    
+                time_vec = th.ones([self.Nx])*t
+                t_c = th.stack((c.float(),time_vec), dim=1)
+                sk = self.func_sk(t_c)*th.abs(self.sk_fac)
+                sk = sk.squeeze(-1)
+                
+            if not self.learn_f_hyd:
+                f_hyd = -self.alpha*self.rho_s/self.n_e*(1-self.f)*(self.k_d*c**(self.beta-1))
+                
+            else:
+                time_vec = th.ones([self.Nx])*t
+                t_c = th.stack((c.float(),time_vec), dim=1)
+                f_hyd = self.func_f(t_c)*self.f_fac
+                f_hyd = f_hyd.squeeze(-1)
+            
+            if not self.learn_r_hyd:
+                ret = (self.f*(self.k_d*self.beta*c**(self.beta-1))*(self.rho_s/self.n_e))+1
+
+            else:
+                time_vec = th.ones([self.Nx])*t
+                t_c = th.stack((c.float(), time_vec), dim=1)
+
+                # phsics informed: ret > 1 and larger than sigmoid output ([0,1])
+                ret = 1+self.func_r(t_c)*(10**self.ret_fac)
+                ret = ret.squeeze(-1)
+            
+            if not self.learn_g_hyd:
+                g_hyd = self.alpha*self.rho_s/self.n_e*sk
+                
+            else:
+                time_vec = th.ones([self.Nx])*t
+                t_c = th.stack((c.float(), time_vec), dim=1)
+                g_hyd = self.func_g(t_c)*th.abs(self.g_fac)
+                g_hyd = g_hyd.squeeze(-1)
+                
+            # Integrate the fluxes at all boundaries of control volumes i
+            flux_c = (top_flux + bot_flux+f_hyd*c+g_hyd)/ret
+
+            # total concentration
+            flux_sk = -f_hyd*(self.n_e/self.rho_s)*c-g_hyd*(self.n_e/self.rho_s)
+            flux = th.stack((flux_c, flux_sk), dim=len(c.size()))
+            return flux
     
     def state_kernel(self, t, u):
         """
@@ -818,7 +936,7 @@ class FINN_AllenCahn(FINN):
         self.func_nn = self.function_learner().to(device=self.device)
         
         # Initialize the multiplier of the retardation factor function (denormalization)
-        self.p_mult = nn.Parameter(th.tensor([10.0],dtype=th.float))
+        self.p_mult = nn.Parameter(th.tensor([10.0],dtype=th.double))
     
     """
     TODO: Implement flux kernel for test (if different BC is used)

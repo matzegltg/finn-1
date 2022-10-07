@@ -176,8 +176,7 @@ def main():
 
     SAVE_DATA = True
     VISUALIZE_DATA = True
-    
-    sand = True 
+    sand = params.sandbool
     if sand:
         simulator = Simulator(
             d_e=params.D_e,
@@ -195,7 +194,7 @@ def main():
             a_k=params.a_k,
             alpha_l = params.alpha_l,
             s_k_0 = params.kin_sorb,
-            sand=sand,
+            sand=params.sandbool,
             n_e_sand = params.sand.porosity,
             x_start_soil= params.sand.top,
             x_stop_soil = params.sand.bot,
@@ -221,7 +220,7 @@ def main():
             a_k=params.a_k,
             alpha_l=params.alpha_l,
             s_k_0 = params.kin_sorb,
-            sand=sand
+            sand=params.sandbool
         )
 
     # Create train, validation and test data
