@@ -72,7 +72,6 @@ def run_training(print_progress=True, model_number=None):
             learn_coeff=True
         ).to(device=device)
         
-    
     elif config.data.type == "diffusion_sorption":
         # Load samples, together with x, y, and t series
 
@@ -117,49 +116,48 @@ def run_training(print_progress=True, model_number=None):
         t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
                       dtype=th.float).to(device=device)
         x = np.load(os.path.join(data_path, "x_series.npy"))
-        
-        # TODO: Interpolation of experimental data
+        # Interpolation of experimental data
         if config.expdata:
-            # cm/d
-            # get velocities
             df = pd.read_excel("../../../../../OneDrive - bwedu/6. Semester/BA/Collaborations/PFAS/Daten/220613_ColumnExperiments_Data_N1.xlsx", "N1", skiprows=9, nrows=40, usecols="B:U")
-            
-            exp_conc = df.iloc[[20]].to_numpy(dtype=np.float64).squeeze()
-            exp_conc = exp_conc/1000
-            exp_conc = np.insert(exp_conc, 0, params.init_conc)
-            exp_t = df.iloc[[35]].to_numpy().squeeze()
+            print(df)
+            # select PFOS row
+            exp_conc = df.iloc[[20]].to_numpy(dtype=np.float32).squeeze()
+
+            # ng/L -> mug/L -> mug/cm^3
+            exp_conc = exp_conc/1000000
+            # t=0 initial concentration
+            exp_conc = np.insert(exp_conc, 0, 0)
+            exp_t = df.iloc[[35]].to_numpy(dtype=np.float32).squeeze()
             exp_t = np.insert(exp_t, 0, 0)
-            
-            new_exp_t = np.zeros((len(exp_t)), dtype=np.float64)
-            for i in range(0,len(exp_t)-1):
-                new_exp_t[i+1] = (exp_t[i+1]+exp_t[i])/2
-            
-            sample_exp = th.from_numpy(exp_conc)
-            t_exp = th.from_numpy(new_exp_t)
-            sample_c = th.empty((params.T_STEPS, params.X_STEPS), dtype=th.float)
-            sample_ct = th.empty((params.T_STEPS, params.X_STEPS), dtype=th.float)
-            print(sample_c.shape)
-            # TODO: use equation
-            sample_c[0,:] = 32
-            sample_ct[0,:] = 42.4024
-            dt = params.T_MAX/params.T_STEPS
-            tot_time = 0
-            
-            # TODO: better time interpolations? So far: [0,t1] = c(t0)
-            # [t1,t2] = c(t1)
-            for index, elem in enumerate(t_exp):
-                for i in range(len(sample_c[:,-1])):
-                    if elem <= tot_time:
-                        sample_c[i,-1] = sample_exp[index] 
-                    tot_time+=dt
-                tot_time = 0
-                
+            t= t.numpy()
+            dt = t[1]-t[0]
+            # do interpolation
+            # WARNING TO ADAPT IF DIFFERENT TIMES ARE USED
+            new_t = np.linspace(exp_t[0], exp_t[7], num=params.T_STEPS, dtype=np.float32)
+            new_exp = np.interp(new_t, exp_t, exp_conc)
+            #plt.plot(new_t, new_exp)
+            #plt.show()
+            sample_exp = th.tensor(new_exp, dtype=th.float).to(device=device)
 
-            #th.set_printoptions(threshold=sys.maxsize)
-            #print(sample_c[:,-1])
-            print(sample_ct)
-            u = th.stack((sample_c, sample_ct), dim=len(sample_c.shape))
+            # "upscale" to sizes required by FINN
+            sample_c = th.empty((params.T_STEPS, params.X_STEPS), dtype=th.float32)
+            sample_sk = th.empty((params.T_STEPS, params.X_STEPS), dtype=th.float32)
+            
+            init_conc = th.zeros(params.X_STEPS)
+            init_conc[params.sand.top:params.sand.bot] = params.init_conc
+            init_sk = th.zeros(params.X_STEPS)
+            init_sk[params.sand.top:params.sand.bot] = params.kin_sorb
+            sample_c[:,-1] = sample_exp
+            sample_c[0,:] = init_conc
+            sample_sk[0,:] = init_sk
+            th.set_printoptions(threshold=10000)
+            print(sample_c)
+            u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
+            t = th.tensor(t, dtype=th.float).to(device=device)
+            start_index_optim = int(exp_t[1]/dt)
 
+
+            
         else:
             sample_c = th.tensor(np.load(os.path.join(data_path, "sample_c.npy")),
                              dtype=th.float).to(device=device)
@@ -184,15 +182,16 @@ def run_training(print_progress=True, model_number=None):
             dx = dx,
             layer_sizes = config.model.layer_sizes,
             device = device,
-            mode="train",
+            mode="test",
             learn_coeff=False,
-            learn_f=False,
-            learn_sk=True,
+            learn_f=True,
             learn_f_hyd=True,
-            learn_g_hyd=False,
-            learn_r_hyd=False,
+            learn_g_hyd=True,
+            learn_r_hyd=True,
             learn_ve=False,
-            learn_k_d=False,
+            learn_k_d=True,
+            learn_beta=True,
+            learn_alpha=True,
             t_steps=len(t),
             rho_s = np.array(params.rho_s),
             f = np.array(params.f),
@@ -206,8 +205,7 @@ def run_training(print_progress=True, model_number=None):
             n_e_sand = np.array(params.sand.porosity),
             x_start_soil = np.array(params.sand.top),
             x_stop_soil = np.array(params.sand.bot),
-            x_steps_soil = np.array(params.sand.X_STEPS),
-            x_steps_sand = np.array(params.sand.alpha_l),
+            x_steps_soil = np.array(params.X_STEPS),
             alpha_l_sand = np.array(params.sand.alpha_l),
             v_e_sand = np.array(params.sand.v_e),
             config=None,
@@ -334,7 +332,6 @@ def run_training(print_progress=True, model_number=None):
     """
 
     a = time.time()
-
     #
     # Start the training and iterate over all epochs
     for epoch in range(config.training.epochs):
@@ -357,11 +354,15 @@ def run_training(print_progress=True, model_number=None):
             #print(f"t: {t.shape}")
             #print(f"t: {t.shape}")
             #print(model.state_dict())
-
             u_hat = model(t=t, u=u)
-
             if config.expdata:
-                mse = criterion(u_hat[:,-1,0], u[:,-1,0])
+                pen_count = 0
+                for elem in u_hat[...,1]:
+                    if not(th.all(elem > 0)):
+                        pen_count+=1
+                print(pen_count)
+                penalty = th.ones(1)+pen_count
+                mse = criterion(u_hat[start_index_optim:,-1,0], u[start_index_optim:,-1,0])  + penalty
             else:
                 mse = criterion(u_hat, u)
 

@@ -96,6 +96,10 @@ def write_data_to_file(root_path, simulator, sample_c, sample_sk):
         np.save(file=os.path.join(data_path, "x_series.npy"), arr=simulator.x)
         np.save(file=os.path.join(data_path, "sample_c.npy"), arr=sample_c)
         np.save(file=os.path.join(data_path, "sample_sk.npy"), arr=sample_sk)
+        np.save(file="../../../../../OneDrive - bwedu/6. Semester/BA/finn_self/comp_adapt_bound/t_series.npy", arr=simulator.t)
+        np.save(file="../../../../../OneDrive - bwedu/6. Semester/BA/finn_self/comp_adapt_bound/sample_c.npy", arr=sample_c)
+        np.save(file="../../../../../OneDrive - bwedu/6. Semester/BA/finn_self/comp_adapt_bound/sample_sk.npy", arr=sample_sk)
+        
     
     else:
 
@@ -198,7 +202,6 @@ def main():
             n_e_sand = params.sand.porosity,
             x_start_soil= params.sand.top,
             x_stop_soil = params.sand.bot,
-            x_steps_sand=params.sand.X_STEPS,
             alpha_l_sand = params.sand.alpha_l,
             v_e_sand = params.sand.v_e
             )

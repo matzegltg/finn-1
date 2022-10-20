@@ -11,7 +11,7 @@ import pickle
 sys.path.append("..")
 from utils.configuration import Configuration
 from finn import *
-
+import pandas as pd
 
 def animate_1d(t, axis1, axis2, field, field_hat):
     """
@@ -359,6 +359,28 @@ def comp_ret_soil(model, u_hat, u, t, x, number):
     ax[1].legend()
     plt.show()
 
+def vis_btc(model, u_hat, u, t, x, number):
+    params = Configuration(f"results/{number}/params/cfg.json")
+    dt = t[1]-t[0]
+    df = pd.read_excel("../../../../../OneDrive - bwedu/6. Semester/BA/Collaborations/PFAS/Daten/220613_ColumnExperiments_Data_N1.xlsx", "N1", skiprows=9, nrows=40, usecols="B:U")
+    exp_t = df.iloc[[35]].to_numpy(dtype=np.float32).squeeze()
+    start_index = int(exp_t[0]/dt)
+    cw = np.transpose(u[...,0])
+    cw_hat = np.transpose(u_hat[...,0])
+
+    cw_btc = cw[-1,:]
+    cw_hat_btc = cw_hat[-1,:]
+
+    fig, ax = plt.subplots(1,1)
+    ax.set_xlabel("t [d]")
+    ax.set_ylabel("conc. PFOS in Eluat []")
+    ax.set_title("BTC")
+    ax.plot(t[start_index:], cw_btc[start_index:], label="Experimental BTC")
+    ax.plot(t, cw_hat_btc, label="FINN predicted BTC")
+    ax.legend()
+    plt.show()
+
+
 def load_model(number):
     model, u_hat, u, t, x = init_model(number)
     print(model.__dict__)
@@ -366,10 +388,11 @@ def load_model(number):
     vis_diff(model, u_hat, u, t, x)
     vis_sorption(model, u_hat, u, t,x, number)
     comp_ret_soil(model, u_hat, u, t, x, number)
+    vis_btc(model, u_hat, u, t, x, number)
 
 
 if __name__ == "__main__":
-    load_model(number=7)
+    load_model(number=10)
 
 # Method to vis sk/se over cw inclusive sand -> anything to see?
 def __comp_ret_total(model, u_hat, u, t, x, number):

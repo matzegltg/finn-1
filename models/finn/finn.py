@@ -402,12 +402,12 @@ class FINN_DiffAD2ss(FINN):
     This class inherits all parameter from the parent FINN class.
     """
     def __init__(self, u, D, BC, dx, layer_sizes, device, rho_s, f, k_d, beta, n_e, 
-                alpha, v_e, t_steps, learn_f_hyd, learn_r_hyd, learn_g_hyd, sand, 
-                D_sand=None,
-                n_e_sand=None, x_start_soil=None, x_stop_soil=None, x_steps_soil=None,
-                x_steps_sand=None, alpha_l_sand=None, v_e_sand=None, mode="train",
+                alpha, v_e, t_steps, learn_f_hyd, learn_r_hyd, learn_g_hyd, learn_alpha,
+                learn_beta, 
+                sand, D_sand=None, n_e_sand=None, x_start_soil=None, x_stop_soil=None,
+                x_steps_soil=None, alpha_l_sand=None, v_e_sand=None, mode="train",
                 config=None, learn_coeff=True, learn_stencil=False, bias=True,
-                sigmoid=True, learn_f=False, learn_sk=True, learn_k_d=True, learn_ve=True):
+                sigmoid=True, learn_f=False, learn_k_d=True, learn_ve=True):
         
         super().__init__(u, D, BC, layer_sizes, device, mode, config, learn_coeff,
                          learn_stencil, bias, sigmoid)
@@ -449,9 +449,16 @@ class FINN_DiffAD2ss(FINN):
         else:
             self.v_e = nn.Parameter(th.tensor(v_e, dtype=th.double, device=self.device))
 
-        if learn_sk:
-            self.func_sk = self.function_learner().to(device=self.device)
-            self.sk_fac = nn.Parameter(th.tensor([1.0], dtype=th.double))
+        if not learn_beta:
+            self.beta = th.tensor(beta, dtype=th.double, device=self.device)
+        else:
+            self.beta = nn.Parameter(th.tensor(beta, dtype=th.double, device=self.device))
+        
+        if not learn_alpha:
+            self.alpha = th.tensor(alpha, dtype=th.double, device=self.device)
+        else:
+            self.alpha = nn.Parameter(th.tensor(alpha, dtype=th.double, device=self.device))
+
         if learn_f_hyd:
             self.func_f = self.function_learner().to(device=self.device)
             self.f_fac = nn.Parameter(th.tensor([1.0], dtype=th.double))
@@ -469,10 +476,8 @@ class FINN_DiffAD2ss(FINN):
         # potentially non-learnable parameters
         self.dx = th.tensor(dx, dtype=th.double, device=self.device)
         self.rho_s = th.tensor(rho_s, dtype=th.double, device=self.device)        
-        self.beta = th.tensor(beta, dtype=th.double, device=self.device)
+
         self.n_e  = th.tensor(n_e, dtype=th.double, device=self.device)
-        self.alpha = th.tensor(alpha, dtype = th.double, device=self.device)
-        self.learn_sk = learn_sk
         self.learn_f_hyd = learn_f_hyd
         self.learn_g_hyd = learn_g_hyd
         self.learn_r_hyd = learn_r_hyd
@@ -483,7 +488,6 @@ class FINN_DiffAD2ss(FINN):
             self.x_start = th.tensor(x_start_soil, dtype=th.int, device=self.device)
             self.x_stop = th.tensor(x_stop_soil, dtype=th.int, device=self.device)
             self.x_steps_soil = th.tensor(x_steps_soil, dtype=th.int, device=self.device)
-            self.x_steps_sand = th.tensor(x_steps_sand, dtype=th.int, device=self.device)
             self.alpha_l_sand = th.tensor(alpha_l_sand, dtype=th.double, device=self.device)
             self.v_e_sand = th.tensor(v_e_sand, dtype=th.double, device=self.device)
         
@@ -508,7 +512,7 @@ class FINN_DiffAD2ss(FINN):
         # Separate u into c and ct
         c = u[...,0]
         sk = u[...,1]
-
+        
         if self.sand:
             
             cw_soil= c[self.x_start:self.x_stop]
@@ -559,16 +563,8 @@ class FINN_DiffAD2ss(FINN):
             bot_bound_flux = th.tensor(0).unsqueeze(0)
 
             bot_flux = th.cat((bot_flux_sand_top, bot_flux_soil, bot_flux_sand_bot, bot_bound_flux))
-    
-            if not self.learn_sk:
-                sk  = sk
-                
-            else:    
-                time_vec = th.ones([self.Nx])*t
-                t_c = th.stack((c.float(),time_vec), dim=1)
-                sk = self.func_sk(t_c)*th.abs(self.sk_fac)
-                sk = sk.squeeze(-1)
-                
+
+
             if not self.learn_f_hyd:
                 f_hyd = th.zeros(self.Nx)
                 f_hyd[self.x_start:self.x_stop] = -self.alpha*self.rho_s/self.n_e*(1-self.f)*(self.k_d*cw_soil**(self.beta-1))
@@ -576,7 +572,7 @@ class FINN_DiffAD2ss(FINN):
             else:
                 time_vec = th.ones([self.Nx])*t
                 t_c = th.stack((c.float(),time_vec), dim=1)
-                f_hyd = self.func_f(t_c)*self.f_fac
+                f_hyd = -(self.func_f(t_c)*th.abs(self.f_fac))
                 f_hyd = f_hyd.squeeze(-1)
             
             if not self.learn_r_hyd:
@@ -595,25 +591,25 @@ class FINN_DiffAD2ss(FINN):
                 g_hyd = th.zeros(self.Nx)
                 g_hyd[self.x_start:self.x_stop] = self.alpha*self.rho_s/self.n_e*sk_soil
                 
+                
             else:
                 time_vec = th.ones([self.Nx])*t
-                t_c = th.stack((c.float(), time_vec), dim=1)
-                g_hyd = self.func_g(t_c)*th.abs(self.g_fac)
+                t_s = th.stack((sk.float(), time_vec), dim=1)
+                g_hyd = self.func_g(t_s)*th.abs(self.g_fac)
                 g_hyd = g_hyd.squeeze(-1)
             
             # Integrate the fluxes at all boundaries of control volumes i
             flux_c = (top_flux + bot_flux+f_hyd*c+g_hyd)/ret
-            th.set_printoptions(precision=10)
-            
 
-            # total concentration
+            # sk flux
             flux_sk=th.zeros(self.Nx)
             flux_sk[self.x_start:self.x_stop] = -f_hyd[self.x_start:self.x_stop]\
                 *(self.n_e/self.rho_s)*cw_soil-g_hyd[self.x_start:self.x_stop]\
                     *(self.n_e/self.rho_s)
-            #print(flux_sk)
-            #time.sleep(2)
+            
+            #flux_sk[self.x_start:self.x_stop]=(self.n_e/self.rho_s)*(self.alpha*(self.k_d*cw_soil**self.beta-sk[self.x_start:self.x_stop]))
             flux = th.stack((flux_c, flux_sk), dim=len(c.size()))
+            
             return flux
 
         else:
@@ -655,14 +651,7 @@ class FINN_DiffAD2ss(FINN):
             # Concatenate the right fluxes
             bot_flux = th.cat((bot_neighbors, bot_bound_flux))
             
-            if not self.learn_sk:
-                sk  = sk
-                
-            else:    
-                time_vec = th.ones([self.Nx])*t
-                t_c = th.stack((c.float(),time_vec), dim=1)
-                sk = self.func_sk(t_c)*th.abs(self.sk_fac)
-                sk = sk.squeeze(-1)
+
                 
             if not self.learn_f_hyd:
                 f_hyd = -self.alpha*self.rho_s/self.n_e*(1-self.f)*(self.k_d*c**(self.beta-1))
@@ -699,14 +688,16 @@ class FINN_DiffAD2ss(FINN):
             # total concentration
             flux_sk = -f_hyd*(self.n_e/self.rho_s)*c-g_hyd*(self.n_e/self.rho_s)
             flux = th.stack((flux_c, flux_sk), dim=len(c.size()))
+
+        
             return flux
     
     def state_kernel(self, t, u):
         """
         This function defines the state kernel for training, which takes the
         fluxes as inputs, and returns du/dt)
-        """        
-
+        """
+    
         state = self.flux_kernel(t, u)
         return state
     
@@ -718,7 +709,6 @@ class FINN_DiffAD2ss(FINN):
         # The odeint function receives the function state_kernel that calculates
         # du/dt, the initial condition u[0], and the time at which the values of
         # u will be saved t
-
         pred = odeint(self.state_kernel, u[0], t, method="euler")
         return pred
 

@@ -16,7 +16,7 @@
  },
  "model": {
   "name": "diff-ad2ss",
-  "number": 7,
+  "number": 10,
   "layer_sizes": [
    2,
    20,
@@ -25,5 +25,12 @@
    1
   ]
  },
- "expdata": true
+ "expdata": true,
+ "results": {
+  "current_epoch": 1,
+  "current_training_error": 10.00000286102295,
+  "lowest_train_error": 10.00000286102295,
+  "current_validation_error": 10.00000286102295,
+  "lowest_validation_error": 10.00000286102295
+ }
 }

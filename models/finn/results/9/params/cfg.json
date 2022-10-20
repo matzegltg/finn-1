@@ -7,19 +7,19 @@
  "a_k": 0.005,
  "D_e": 2.5,
  "alpha_l": 9,
- "v_e": 87.5,
+ "v_e": 78.9,
  "init_conc": 0.032,
  "kin_sorb": 0.0053,
- "T_MAX": 8.7,
- "T_STEPS": 5000,
+ "T_MAX": 22.73888889,
+ "T_STEPS": 2000,
  "X_LENGTH": 55,
- "X_STEPS": 28,
+ "X_STEPS": 14,
  "sandbool": true,
  "sand": {
-  "top": 4,
-  "bot": 24,
+  "top": 2,
+  "bot": 12,
   "porosity": 0.31,
   "alpha_l": 5,
-  "v_e": 112.9
+  "v_e": 101.8
  }
 }

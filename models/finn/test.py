@@ -15,6 +15,7 @@ import sys
 import time
 import pickle
 import pathlib as pth
+import pandas as pd
 
 sys.path.append("..")
 from utils.configuration import Configuration
@@ -74,27 +75,59 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
     elif config.data.type == "diffusion_ad2ss":
 
         params = Configuration("../../data/diffusion_ad2ss/params.json")
-        
-        # Load samples, together with x, y, and t series
         t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
                       dtype=th.float).to(device=device)
-
         x = np.load(os.path.join(data_path, "x_series.npy"))
-        sample_c = th.tensor(np.load(os.path.join(data_path, "sample_c.npy")),
-                             dtype=th.float).to(device=device)
-        sample_sk = th.tensor(np.load(os.path.join(data_path, "sample_sk.npy")),
-                             dtype=th.float).to(device=device)
-        
-        dx = x[1]-x[0]
+        if config.expdata:
+            df = pd.read_excel("../../../../../OneDrive - bwedu/6. Semester/BA/Collaborations/PFAS/Daten/220613_ColumnExperiments_Data_N1.xlsx", "N1", skiprows=9, nrows=40, usecols="B:U")
+            print(df)
+            # select PFOS row
+            exp_conc = df.iloc[[20]].to_numpy(dtype=np.float32).squeeze()
 
-        u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
-        u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
-        
-        # Initialize and set up the model
-        # TODO: boundaries? Neumann...
-        bc = np.array([0.0, 0.0])
+            # ng/L -> mug/L
+            exp_conc = exp_conc/1000000
+            # t=0 initial concentration
+            exp_conc = np.insert(exp_conc, 0, 0)
+            exp_t = df.iloc[[35]].to_numpy(dtype=np.float32).squeeze()
+            exp_t = np.insert(exp_t, 0, 0)
+
+            t= t.numpy()
             
-        # Initialize and set up the model
+            # do interpolation
+            new_t = np.linspace(exp_t[0], exp_t[7], num=params.T_STEPS, dtype=np.float32)
+            new_exp = np.interp(new_t, exp_t, exp_conc)
+            #plt.plot(new_t, new_exp)
+            #plt.show()
+            sample_exp = th.tensor(new_exp, dtype=th.float).to(device=device)
+
+            # "upscale" to sizes required by FINN
+            sample_c = th.zeros((params.T_STEPS, params.X_STEPS), dtype=th.float32)
+            sample_sk = th.zeros((params.T_STEPS, params.X_STEPS), dtype=th.float32)
+            
+            init_conc = th.zeros(params.X_STEPS)
+            init_conc[params.sand.top:params.sand.bot] = params.init_conc
+            init_sk = th.zeros(params.X_STEPS)
+            init_sk[params.sand.top:params.sand.bot] = params.kin_sorb
+            sample_c[:,-1] = sample_exp
+            sample_c[0,:] = init_conc
+            sample_sk[0,:] = init_sk
+            u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
+            t = th.tensor(t, dtype=th.float).to(device=device)
+        else:
+            sample_c = th.tensor(np.load(os.path.join(data_path, "sample_c.npy")),
+                             dtype=th.float).to(device=device)
+            sample_sk = th.tensor(np.load(os.path.join(data_path, "sample_sk.npy")),
+                             dtype=th.float).to(device=device)                        
+            # #size: [501, 26, 2]
+            u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
+
+            # #adds noice with mu = 0, std = data.noise
+            # #for all rows apart from the first one
+            # # 1 to last in all dimensions
+            u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
+
+        dx = x[1]-x[0]
+            
         # Initialize and set up the model
         model = FINN_DiffAD2ss(
             u = u,
@@ -103,15 +136,16 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
             dx = dx,
             layer_sizes = config.model.layer_sizes,
             device = device,
-            mode="train",
+            mode="test",
             learn_coeff=False,
-            learn_f=False,
-            learn_sk=True,
+            learn_f=True,
             learn_f_hyd=True,
-            learn_g_hyd=False,
-            learn_r_hyd=False,
+            learn_g_hyd=True,
+            learn_r_hyd=True,
             learn_ve=False,
-            learn_k_d=False,
+            learn_k_d=True,
+            learn_beta=True,
+            learn_alpha=True,
             t_steps=len(t),
             rho_s = np.array(params.rho_s),
             f = np.array(params.f),
@@ -125,8 +159,7 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
             n_e_sand = np.array(params.sand.porosity),
             x_start_soil = np.array(params.sand.top),
             x_stop_soil = np.array(params.sand.bot),
-            x_steps_soil = np.array(params.sand.X_STEPS),
-            x_steps_sand = np.array(params.sand.alpha_l),
+            x_steps_soil = np.array(params.X_STEPS),
             alpha_l_sand = np.array(params.sand.alpha_l),
             v_e_sand = np.array(params.sand.v_e),
             config=None,
@@ -285,8 +318,11 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
     labels = np.array(u)
 
     # Compute error
-    mse = criterion(u_hat, u).item()
-    print(f"MSE: {mse}")
+    if config.expdata:
+        pass
+    else:
+        mse = criterion(u_hat, u)
+        print(f"MSE: {mse}")
 
     with open(f"results/{config.model.number}/model.pkl", "wb") as outp:    
         pickle.dump(model, outp, pickle.HIGHEST_PROTOCOL)
@@ -297,7 +333,7 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
     params.save(f"results/{config.model.number}/params")
     config.save(f"results/{config.model.number}/config")
 
-
+    print(u_hat[:,-1,0])
     # Visualize the data
     if config.data.type == "burger" and visualize:
         u_hat = np.transpose(u_hat)

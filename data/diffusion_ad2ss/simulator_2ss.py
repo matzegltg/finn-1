@@ -13,7 +13,7 @@ class Simulator(object):
         k_d:float, cw_0:float, t_max:float, x_right:float, x_steps:int, 
         t_steps:int, v:float, a_k:float, alpha_l:float, s_k_0:float, sand:bool,
         n_e_sand:float=None, x_start_soil:float=None, x_stop_soil:float=None, 
-        x_steps_sand:float=None, alpha_l_sand:float=None, v_e_sand:float=None):
+        alpha_l_sand:float=None, v_e_sand:float=None):
         """Constructor method initializing the parameters for the diffusion
         sorption problem.
 
@@ -37,7 +37,6 @@ class Simulator(object):
             n_e_sand (float, optional): Porosity of sand [-]
             x_start_soil (float, optional): spatial index at which sand turns into soil
             x_stop_soil (float, optional): spatial index at which soil turns back to sand
-            x_steps_sand (float, optional): Number of nodes that should be considered as sand
             alpha_l_sand (float, optional): longitudinal dispersion coefficient in sand [L]
             v_e_sand (float, optional): advective velocity in sand [L/T]
         """ 
@@ -58,7 +57,6 @@ class Simulator(object):
 
         if self.sand:
             self.n_e_sand = n_e_sand
-            self.x_steps_sand = x_steps_sand
             self.x_start = x_start_soil
             self.x_stop = x_stop_soil
 
@@ -148,7 +146,7 @@ class Simulator(object):
         for i in range(len(self.t)-1):
             # To observe solution status
             if i%10000 == 0:
-                pass
+                print(i)
             u[:,i+1] = u[:,i] + self.dt*self.ad_ode(t=i, conc_cw_sk=u[:,i])
 
         return u
