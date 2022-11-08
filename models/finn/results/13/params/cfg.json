@@ -7,20 +7,20 @@
  "a_k": 0.005,
  "D_e": 2.5,
  "alpha_l": 9,
- "v_e": 78.9,
+ "v_e": 50,
  "init_conc": 0.032,
  "kin_sorb": 0.0053,
  "kin_sorb_end": 0.0017,
- "T_MAX": 22.73888889,
- "T_STEPS": 2000,
+ "T_MAX": 141.7625,
+ "T_STEPS": 10000,
  "X_LENGTH": 55,
- "X_STEPS": 14,
+ "X_STEPS": 10,
  "sandbool": true,
  "sand": {
-  "top": 2,
-  "bot": 12,
+  "top": 3,
+  "bot": 7,
   "porosity": 0.31,
   "alpha_l": 5,
-  "v_e": 101.8
+  "v_e": 64.516
  }
 }

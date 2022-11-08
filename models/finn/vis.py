@@ -30,7 +30,9 @@ def init_model(number):
         model = pickle.load(inp)
     
     u_hat = np.load(f"results/{number}/u_hat.npy")
-    u = np.load(f"results/{number}/u.npy")    
+    
+    u = np.load(f"results/{number}/u.npy")
+    print(u.shape)
     t = np.load(f"results/{number}/t.npy")
     x = np.load(f"results/{number}/x.npy")
 
@@ -338,8 +340,9 @@ def comp_ret_soil(model, u_hat, u, t, x, number):
     # plot sk over cw
     for timestep in range(0,len(t)):
         if timestep%500 == 0:
-            ax[0].plot(cw[:,timestep], sk[:,timestep], label=f"FD: {timestep}", alpha=0.9)
-            ax[0].plot(cw_hat[:, timestep], sk_hat[:,timestep], "--", label=f"FINN: {timestep}", alpha=0.9)
+            color = next(ax[0]._get_lines.prop_cycler)['color']
+            ax[0].plot(cw[:,timestep], sk[:,timestep], label=f"FD: {timestep}", alpha=0.9, color = color)
+            ax[0].plot(cw_hat[:, timestep], sk_hat[:,timestep], "--", label=f"FINN: {timestep}", alpha=0.9, color = color)
 
     ax[0].set_xlabel("$c_w$")
     ax[0].set_ylabel("$s_k$")
@@ -349,8 +352,9 @@ def comp_ret_soil(model, u_hat, u, t, x, number):
     # plot se over cw
     for timestep in range(0,len(t)):
         if timestep%500 == 0:
-            ax[1].plot(cw[:,timestep], se[:,timestep], label=f"FD: {timestep}")
-            ax[1].plot(cw_hat[:, timestep], se_hat[:,timestep], "--", label=f"FINN: {timestep}")
+            color = next(ax[1]._get_lines.prop_cycler)['color']
+            ax[1].plot(cw[:,timestep], se[:,timestep], label=f"FD: {timestep}", color=color)
+            ax[1].plot(cw_hat[:, timestep], se_hat[:,timestep], "--", label=f"FINN: {timestep}", color=color)
     
     #ax[1].legend()
     ax[1].set_xlabel("$c_w$")
@@ -380,19 +384,93 @@ def vis_btc(model, u_hat, u, t, x, number):
     ax.legend()
     plt.show()
 
+def vis_sorption_without_params(model, u, u_hat, t, x, number):
+    params = Configuration(f"results/{number}/params/cfg.json")
 
-def load_model(number):
+    # exakt solution
+    sk = np.transpose(u[...,1])
+    cw = np.transpose(u[...,0])
+
+    if params.sandbool:
+        sk = sk[params.sand.top:params.sand.bot]
+        cw = cw[params.sand.top:params.sand.bot]
+
+    k_d = params.k_d
+    beta = params.beta
+    f = params.f
+    se = f*k_d*cw**beta
+
+    # approx FINN sol
+    cw_hat = np.transpose(u_hat[...,0])
+    sk_hat = np.transpose(u_hat[...,1])
+
+    if params.sandbool:
+        cw_hat = cw_hat[params.sand.top:params.sand.bot]
+        sk_hat = sk_hat[params.sand.top:params.sand.bot]
+
+    beta_hat = model.beta.item()
+    k_d_hat = model.k_d.item()
+    f_hat = model.f.item()
+    se_hat = f_hat*k_d_hat*cw_hat**beta_hat
+
+    fig, ax = plt.subplots()
+    
+    # plot sk over cw
+    for timestep in range(0,len(t)):
+        
+        if timestep%200 == 0:
+            
+            color = next(ax._get_lines.prop_cycler)['color']
+            ax.plot(cw[:,timestep], sk[:,timestep], label=f"FD: {timestep}, like T. Bierbaum", alpha=0.9, color=color)
+            ax.plot(cw_hat[:,timestep], sk_hat[:,timestep], "--", label=f"FINN: {timestep}, based on exp. data",  color=color, alpha=0.9)
+
+    ax.set_xlabel("$c_w$")
+    ax.set_ylabel("$s_k$")
+    ax.set_title("kin. sorb. isotherms (after #dt)")
+    ax.legend()
+    plt.show()
+
+def vis_last_column(model, u_hat, u, t, x, number):
+    print(u.shape)
+    sk = u[-1,:,1]
+    print(sk)
+    sk_hat = u_hat[-1,:,1]
+    print(u)
+
+    fig, ax = plt.subplots(1,1)
+    ax.set_xlabel("t [d]")
+    ax.set_ylabel("conc. PFOS in last column at the end of experiment [mug/g]")
+    ax.set_title("kinetically sorbed conc. in last column")
+    ax.plot(sk, x, label="exp")
+    ax.plot(sk_hat, x, label="FINN")
+    ax.legend()
+    plt.show()
+
+def vis_synth_data(number):
     model, u_hat, u, t, x = init_model(number)
     print(model.__dict__)
     vis_sol(model, u_hat, u, t, x)
     vis_diff(model, u_hat, u, t, x)
     vis_sorption(model, u_hat, u, t,x, number)
-    comp_ret_soil(model, u_hat, u, t, x, number)
+    vis_sorption_without_params(model, u, u_hat, t, x, number)
+
+def vis_exp_data(number):
+    model, u_hat, u, t, x = init_model(number)
+    print(model.__dict__)
+
+    #parts of FD does not make sense!!!!!
+    vis_sol(model, u_hat, u, t, x)
+    vis_sorption(model, u_hat, u, t,x, number)
+    
+    # exp
     vis_btc(model, u_hat, u, t, x, number)
+    vis_last_column(model, u_hat, u, t,x, number)
+
 
 
 if __name__ == "__main__":
-    load_model(number=10)
+    #vis_synth_data(number=13)
+    vis_exp_data(number=14)
 
 # Method to vis sk/se over cw inclusive sand -> anything to see?
 def __comp_ret_total(model, u_hat, u, t, x, number):

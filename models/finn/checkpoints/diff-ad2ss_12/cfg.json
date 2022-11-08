@@ -16,11 +16,11 @@
  },
  "model": {
   "name": "diff-ad2ss",
-  "number": 10,
+  "number": 12,
   "layer_sizes": [
-   1,
+   2,
    20,
-   20,
+   40,
    20,
    1
   ]
@@ -28,9 +28,9 @@
  "expdata": true,
  "results": {
   "current_epoch": 1,
-  "current_training_error": 1.9067010725848377e-05,
-  "lowest_train_error": 1.9067010725848377e-05,
-  "current_validation_error": 1.9067010725848377e-05,
-  "lowest_validation_error": 1.9067010725848377e-05
+  "current_training_error": 2.7541025701793842e-05,
+  "lowest_train_error": 2.7541025701793842e-05,
+  "current_validation_error": 2.7541025701793842e-05,
+  "lowest_validation_error": 2.7541025701793842e-05
  }
 }

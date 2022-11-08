@@ -16,7 +16,7 @@
  },
  "model": {
   "name": "diff-ad2ss",
-  "number": 10,
+  "number": 11,
   "layer_sizes": [
    1,
    20,
@@ -28,9 +28,9 @@
  "expdata": true,
  "results": {
   "current_epoch": 1,
-  "current_training_error": 1.9067010725848377e-05,
-  "lowest_train_error": 1.9067010725848377e-05,
-  "current_validation_error": 1.9067010725848377e-05,
-  "lowest_validation_error": 1.9067010725848377e-05
+  "current_training_error": 2.6705249183578417e-05,
+  "lowest_train_error": 2.6705249183578417e-05,
+  "current_validation_error": 2.6705249183578417e-05,
+  "lowest_validation_error": 2.6705249183578417e-05
  }
 }

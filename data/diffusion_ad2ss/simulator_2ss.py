@@ -67,6 +67,7 @@ class Simulator(object):
             self.v[self.x_start:self.x_stop] = v
             self.v[self.x_stop:] = v_e_sand
 
+            
             # no molecular diff in sand
             disp_sand = v_e_sand*alpha_l_sand
             disp_soil = v*alpha_l+d_e
@@ -85,6 +86,9 @@ class Simulator(object):
         self.x = np.linspace(0, self.x_right, self.x_steps)
         self.dx = self.x[1] - self.x[0]
 
+        print(self.x)
+        print(self.dx)
+        print(self.x.shape)
         self.t = np.linspace(0, self.t_max, self.t_steps)
         self.dt = self.t[1] -self.t[0]
         
@@ -184,7 +188,7 @@ class Simulator(object):
             g_hyd[self.x_start:self.x_stop] = self.a_k * self.rho_s/self.n_e * sk_soil
             ret[self.x_start:self.x_stop] = self.f*self.sorpt_derivat(cw_soil)* \
                 (self.rho_s/self.n_e) + 1
-
+            
             # calculate change of cw and sk over over time
             cw_new = (self.disp*np.matmul(self.lap, cw) + dif_bound \
                 -self.v * np.matmul(self.fd, cw) + f_hyd*cw+g_hyd)/ret
@@ -204,12 +208,11 @@ class Simulator(object):
                 (1-self.f)*(self.k_d*cw**(self.beta-1))*(self.rho_s/self.n_e)
             g_hyd = self.a_k * self.rho_s/self.n_e * sk
             ret = (self.f*self.sorpt_derivat(cw)*(self.rho_s/self.n_e))+1
-
-            cw_new = (self.disp*np.matmul(self.lap, cw) + dif_bound \
-            - self.v*np.matmul(self.fd, cw) +f_hyd*cw+g_hyd)/ret
+            
+            cw_new = (self.disp*np.matmul(self.lap, cw) + dif_bound)/ret \
+            - self.v/ret*np.matmul(self.fd, cw) +(f_hyd*cw+g_hyd)/ret
 
             sk_new = -f_hyd*(self.n_e/self.rho_s)*cw-g_hyd*(self.n_e/self.rho_s)
-        
             
         conc_cw_sk_new = np.ndarray(self.x_steps*2)
         conc_cw_sk_new[:self.x_steps] = cw_new

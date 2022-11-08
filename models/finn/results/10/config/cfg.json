@@ -18,7 +18,7 @@
   "name": "diff-ad2ss",
   "number": 10,
   "layer_sizes": [
-   2,
+   1,
    20,
    20,
    20,

@@ -4,6 +4,7 @@ Finite Volume Neural Network implementation with PyTorch.
 
 from decimal import DivisionByZero
 from types import DynamicClassAttribute
+from sklearn.preprocessing import StandardScaler
 import torch.nn as nn
 import torch as th
 from torchdiffeq import odeint
@@ -127,6 +128,23 @@ class FINN(nn.Module):
                 layers.append(nn.Sigmoid())
         return nn.Sequential(*nn.ModuleList(layers))
     
+    def function_sk(self):
+        layers = list()
+        
+        for layer_idx in range(len(self.layer_sizes) - 1):
+            if layer_idx == 0:
+                layer = nn.Linear(in_features=self.layer_sizes[layer_idx]+1,
+                out_features=self.layer_sizes[1], bias =self.bias)
+            else:
+                layer = nn.Linear(
+                    in_features=self.layer_sizes[layer_idx],
+                    out_features=self.layer_sizes[layer_idx + 1],
+                    bias=self.bias
+                    ).to(device=self.device)
+            layers.append(layer)
+            layers.append(nn.Tanh())
+
+        return nn.Sequential(*nn.ModuleList(layers))
 
 class Wrapper(nn.Module):
     def __init__(self, f):
@@ -403,7 +421,7 @@ class FINN_DiffAD2ss(FINN):
     """
     def __init__(self, u, D, BC, dx, layer_sizes, device, rho_s, f, k_d, beta, n_e, 
                 alpha, v_e, t_steps, learn_f_hyd, learn_r_hyd, learn_g_hyd, learn_alpha,
-                learn_beta, 
+                learn_beta, learn_sk,
                 sand, D_sand=None, n_e_sand=None, x_start_soil=None, x_stop_soil=None,
                 x_steps_soil=None, alpha_l_sand=None, v_e_sand=None, mode="train",
                 config=None, learn_coeff=True, learn_stencil=False, bias=True,
@@ -439,6 +457,7 @@ class FINN_DiffAD2ss(FINN):
         else:
             self.f = nn.Parameter(th.tensor(f, dtype=th.double,
                                             device=self.device))
+            print(self.f)
         if not learn_k_d:
             self.k_d = th.tensor(k_d,dtype=th.double, device=self.device)
         else:
@@ -470,6 +489,9 @@ class FINN_DiffAD2ss(FINN):
             self.func_g = self.function_learner().to(device=self.device)
             self.g_fac = nn.Parameter(th.tensor([1.0], dtype=th.double))
         
+        if learn_sk:
+            self.func_sk = self.function_sk().to(device=self.device)
+            self.sk_fac = nn.Parameter(th.tensor([0.01], dtype=th.double))
         
         # For testing FV solver without optimization
         #self.z = nn.Parameter(th.tensor([0],dtype=th.double, requires_grad=True))
@@ -481,6 +503,7 @@ class FINN_DiffAD2ss(FINN):
         self.learn_f_hyd = learn_f_hyd
         self.learn_g_hyd = learn_g_hyd
         self.learn_r_hyd = learn_r_hyd
+        self.learn_sk = learn_sk
         self.sand = sand
         if self.sand:
             self.D_sand = th.tensor(D_sand, dtype=th.double, device=self.device)
@@ -512,7 +535,7 @@ class FINN_DiffAD2ss(FINN):
         # Separate u into c and ct
         c = u[...,0]
         sk = u[...,1]
-        
+ 
         if self.sand:
             
             cw_soil= c[self.x_start:self.x_stop]
@@ -525,7 +548,7 @@ class FINN_DiffAD2ss(FINN):
             v_sand = self.v_e_sand
             v_sand_plus = th.relu(v_sand)
             v_sand_min = -th.relu(-v_sand)
-            
+
 
             # top boundary fluxes
             top_bound_flux = (self.D_sand/(self.dx**2)*(self.stencil[0]*c[0] +
@@ -564,6 +587,7 @@ class FINN_DiffAD2ss(FINN):
 
             bot_flux = th.cat((bot_flux_sand_top, bot_flux_soil, bot_flux_sand_bot, bot_bound_flux))
 
+            sc = StandardScaler()
 
             if not self.learn_f_hyd:
                 f_hyd = th.zeros(self.Nx)
@@ -571,20 +595,25 @@ class FINN_DiffAD2ss(FINN):
                 
             else:
                 time_vec = th.ones([self.Nx])*t
-                t_c = th.stack((c.float(),time_vec), dim=1)
-                f_hyd = -(self.func_f(t_c)*th.abs(self.f_fac))
+                t_c = th.stack((c, time_vec), dim=1)
+                f_hyd = self.func_f(t_c.float())*self.f_fac
                 f_hyd = f_hyd.squeeze(-1)
-            
+
             if not self.learn_r_hyd:
                 ret = th.ones(self.Nx)
                 ret[self.x_start:self.x_stop] = (self.f*(self.k_d*self.beta*cw_soil**(self.beta-1))*(self.rho_s/self.n_e))+1
 
             else:
                 time_vec = th.ones([self.Nx])*t
-                t_c = th.stack((c.float(), time_vec), dim=1)
-
+                #c_fit = sc.fit_transform(c.reshape(1,-1).detach().numpy())
+                #print(c_fit)
+                #c_norm = th.tensor(c_fit, dtype=th.float64, device=self.device)
+                t_c = th.stack((c, time_vec), dim=1)
+                t_c.unsqueeze(-1)
+                #t_c_norm = th.tensor(t_c_norm, dtype=th.float64, device=self.device)
+                #t_c_norm = t_c_norm[:,0].unsqueeze(-1)
                 # phsics informed: ret > 1 and larger than sigmoid output ([0,1])
-                ret = 1+self.func_r(t_c)*(10**self.ret_fac)
+                ret = 1+self.func_r(t_c.float())*(10**self.ret_fac)
                 ret = ret.squeeze(-1)
             
             if not self.learn_g_hyd:
@@ -594,8 +623,9 @@ class FINN_DiffAD2ss(FINN):
                 
             else:
                 time_vec = th.ones([self.Nx])*t
-                t_s = th.stack((sk.float(), time_vec), dim=1)
-                g_hyd = self.func_g(t_s)*th.abs(self.g_fac)
+                t_sk = th.stack((sk, time_vec), dim=1)
+                t_sk.unsqueeze(-1)
+                g_hyd = self.func_g(t_sk.float())*self.g_fac
                 g_hyd = g_hyd.squeeze(-1)
             
             # Integrate the fluxes at all boundaries of control volumes i
@@ -603,11 +633,22 @@ class FINN_DiffAD2ss(FINN):
 
             # sk flux
             flux_sk=th.zeros(self.Nx)
-            flux_sk[self.x_start:self.x_stop] = -f_hyd[self.x_start:self.x_stop]\
-                *(self.n_e/self.rho_s)*cw_soil-g_hyd[self.x_start:self.x_stop]\
-                    *(self.n_e/self.rho_s)
+            if not self.learn_sk:
+                #flux_sk[self.x_start:self.x_stop]=(self.n_e/self.rho_s)*(self.alpha*(self.k_d*cw_soil**self.beta-sk[self.x_start:self.x_stop]))
+                flux_sk[self.x_start:self.x_stop] = -f_hyd[self.x_start:self.x_stop]*(self.n_e/self.rho_s)*cw_soil-g_hyd[self.x_start:self.x_stop]*(self.n_e/self.rho_s)
+            else:
+                
+                time_vec = th.ones([self.Nx])*t
+                t_c = th.stack((c, sk, time_vec), dim=1)
+                t_c.unsqueeze(-1)
+                #print(t_c_norm)
+                flux_sk[self.x_start:self.x_stop] = (self.func_sk(t_c.float())[self.x_start:self.x_stop]*self.sk_fac).squeeze(-1)
+                #print(flux_sk)
+                # allow negative values
+                #flux_sk[self.x_start:self.x_stop] = -th.log((1/(flux_sk[self.x_start:self.x_stop]+1e-8))-1)
+                flux_sk = flux_sk.squeeze(-1)
+                #time.sleep(1)
             
-            #flux_sk[self.x_start:self.x_stop]=(self.n_e/self.rho_s)*(self.alpha*(self.k_d*cw_soil**self.beta-sk[self.x_start:self.x_stop]))
             flux = th.stack((flux_c, flux_sk), dim=len(c.size()))
             
             return flux

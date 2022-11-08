@@ -136,11 +136,13 @@ def visualize_sample(sample_c, sample_sk, simulator):
         
     ax[0].set_xlim(0, simulator.t.max())
     ax[0].set_ylim(simulator.x.min(), simulator.x.max())
-    ax[0].legend(loc="upper right")
-    ax[0].set_xlabel(r'$t [d]$')
-    ax[0].set_ylabel(r'$x [dm]$')
-    ax[0].set_title(r'$c_w(t,x) [\frac{\mu g}{dm^3}]$', fontsize = 10)
-    
+    ax[0].legend(loc="upper right", fontsize = 17)
+    ax[0].set_xlabel(r'$t [d]$', fontsize = 17)
+    ax[0].set_ylabel(r'$x [cm]$', fontsize = 17)
+    ax[0].set_title(r'$c_w(t,x) \left[\frac{\mu g}{cm^3}\right]$', fontsize = 17)
+    ax[0].tick_params(axis='x', labelsize=17)
+    ax[0].tick_params(axis='y', labelsize=17)
+    plt.yticks(fontsize=17)
     # s_k(t,x) over space and time
     sample_sk = np.transpose(sample_sk)
 
@@ -154,11 +156,14 @@ def visualize_sample(sample_c, sample_sk, simulator):
         
     ax[1].set_xlim(0, simulator.t.max())
     ax[1].set_ylim(simulator.x.min(), simulator.x.max())
-    ax[1].legend(loc="upper right")
-    ax[1].set_xlabel(r'$t [d]$')
-    ax[1].set_ylabel(r'$x [cm]$')
-    ax[1].set_title(r'$s_k(t,x) [\frac{\mu g}{g}]$', fontsize = 10)
-
+    ax[1].legend(loc="upper right", fontsize = 17)
+    ax[1].set_xlabel(r'$t [d]$', fontsize = 17)
+    ax[1].set_title(r'$s_k(t,x) \left[\frac{\mu g}{g}\right]$', fontsize = 17)
+    ax[1].tick_params(axis='x', labelsize=17)
+    ax[1].tick_params(axis='y', labelsize=17)
+    plt.tight_layout()
+    plt.yticks(fontsize=17)
+    
     plt.show()
 
 def main():

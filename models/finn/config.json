@@ -10,7 +10,7 @@
 		"save_model": true,
 		"continue_training": false,
 		"epochs": 1,
-		"learning_rate": 1
+		"learning_rate": 10
 	},
 
 	"data": {
@@ -21,8 +21,8 @@
 
 	"model": {
 		"name": "diff-ad2ss",  // "burger", "burger_2d", "diff-sorp", "diff-react", "allen-cahn", "diff-ad2ss"
-		"number": 10,  // The i-th model
-		"layer_sizes": [2, 20, 20, 20, 1] // [1, 10, 20, 10, 1] for burger, burger_2d, diffusion_sorption, and allen_cahn, [2, 20, 20, 20, 2] for diffusion_reaction, [2, 20,20,20,1] for diff_ad2ss
+		"number": 14,  // The i-th model
+		"layer_sizes": [2, 20, 40, 20, 1] // [1, 10, 20, 10, 1] for burger, burger_2d, diffusion_sorption, and allen_cahn, [2, 20, 20, 20, 2] for diffusion_reaction, [2, 20,20,20,1] for diff_ad2ss
 	},
 
 	"expdata": true

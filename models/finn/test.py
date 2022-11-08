@@ -94,7 +94,7 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
             t= t.numpy()
             
             # do interpolation
-            new_t = np.linspace(exp_t[0], exp_t[7], num=params.T_STEPS, dtype=np.float32)
+            new_t = np.linspace(exp_t[0], exp_t[14], num=params.T_STEPS, dtype=np.float32)
             new_exp = np.interp(new_t, exp_t, exp_conc)
             #plt.plot(new_t, new_exp)
             #plt.show()
@@ -108,9 +108,14 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
             init_conc[params.sand.top:params.sand.bot] = params.init_conc
             init_sk = th.zeros(params.X_STEPS)
             init_sk[params.sand.top:params.sand.bot] = params.kin_sorb
+            last_sk = th.zeros(params.X_STEPS)
+            last_sk[params.sand.top:params.sand.bot] = params.kin_sorb_end
+
             sample_c[:,-1] = sample_exp
             sample_c[0,:] = init_conc
             sample_sk[0,:] = init_sk
+            sample_sk[-1,:]= last_sk
+
             u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
             t = th.tensor(t, dtype=th.float).to(device=device)
         else:
@@ -139,13 +144,14 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
             mode="test",
             learn_coeff=False,
             learn_f=True,
-            learn_f_hyd=True,
-            learn_g_hyd=True,
-            learn_r_hyd=True,
+            learn_f_hyd=False,
+            learn_g_hyd=False,
+            learn_r_hyd=False,
             learn_ve=False,
-            learn_k_d=True,
-            learn_beta=True,
-            learn_alpha=True,
+            learn_k_d=False,
+            learn_beta=False,
+            learn_sk=False,
+            learn_alpha=False,
             t_steps=len(t),
             rho_s = np.array(params.rho_s),
             f = np.array(params.f),

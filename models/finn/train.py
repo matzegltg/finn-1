@@ -129,14 +129,35 @@ def run_training(print_progress=True, model_number=None):
             exp_conc = np.insert(exp_conc, 0, 0)
             exp_t = df.iloc[[35]].to_numpy(dtype=np.float32).squeeze()
             exp_t = np.insert(exp_t, 0, 0)
+
+            # average concentrations -> shift to middle value of times
+            exp_mean_t = []
+            for i in range(0,len(exp_t)):
+                if i == 0:
+                    exp_mean_t.append(exp_t[i])
+                else:
+                    exp_mean_t.append((exp_t[i] + exp_t[i-1])/2) 
+            
             t= t.numpy()
+
             dt = t[1]-t[0]
             # do interpolation
             # WARNING TO ADAPT IF DIFFERENT TIMES ARE USED
-            new_t = np.linspace(exp_t[0], exp_t[7], num=params.T_STEPS, dtype=np.float32)
-            new_exp = np.interp(new_t, exp_t, exp_conc)
-            #plt.plot(new_t, new_exp)
-            #plt.show()
+            new_t = np.linspace(exp_mean_t[0], exp_mean_t[-1], num=params.T_STEPS, dtype=np.float32)
+            new_exp = np.interp(new_t, exp_mean_t, exp_conc)
+            fig, ax = plt.subplots()
+            ax.plot(new_t, new_exp, label = "Interpolation")
+            ax.scatter(exp_t, exp_conc, color="y", label="Original times")
+            ax.scatter(exp_mean_t, exp_conc, color="r", label="Averaged times")
+            ax.set_xlabel(r'$t [d]$', fontsize=17)
+            ax.set_ylabel(r'conc PFOS $\left[\frac{\mu g}{cm^3}\right]$', fontsize=17)
+            ax.set_title('Experimental BTC', fontsize=17)
+            ax.tick_params(axis='x', labelsize=17)
+            ax.tick_params(axis='y', labelsize=17)
+            ax.set_yscale("log")
+            ax.legend()
+            plt.savefig("exp_data")
+
             sample_exp = th.tensor(new_exp, dtype=th.float).to(device=device)
 
             # "upscale" to sizes required by FINN
@@ -147,15 +168,24 @@ def run_training(print_progress=True, model_number=None):
             init_conc[params.sand.top:params.sand.bot] = params.init_conc
             init_sk = th.zeros(params.X_STEPS)
             init_sk[params.sand.top:params.sand.bot] = params.kin_sorb
+            last_sk = th.zeros(params.X_STEPS)
+            last_sk[params.sand.top:params.sand.bot] = params.kin_sorb_end
             sample_c[:,-1] = sample_exp
             sample_c[0,:] = init_conc
             sample_sk[0,:] = init_sk
-            th.set_printoptions(threshold=10000)
-            print(sample_c)
-            u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
-            t = th.tensor(t, dtype=th.float).to(device=device)
-            start_index_optim = int(exp_t[1]/dt)
+            sample_sk[-1,:]= last_sk
 
+            # get indices of time where experimental data is available
+            loss_indices = []
+            for meas_point in exp_mean_t:
+                for i in range(len(new_t)):
+                    if np.abs(new_t[i]-meas_point) <= 0.01:
+                        loss_indices.append(i)
+                        break
+            
+            u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
+            
+            t = th.tensor(new_t, dtype=th.float).to(device=device)
 
             
         else:
@@ -185,13 +215,14 @@ def run_training(print_progress=True, model_number=None):
             mode="test",
             learn_coeff=False,
             learn_f=True,
-            learn_f_hyd=True,
-            learn_g_hyd=True,
-            learn_r_hyd=True,
+            learn_f_hyd=False,
+            learn_g_hyd=False,
+            learn_r_hyd=False,
             learn_ve=False,
-            learn_k_d=True,
-            learn_beta=True,
-            learn_alpha=True,
+            learn_k_d=False,
+            learn_beta=False,
+            learn_sk=False,
+            learn_alpha=False,
             t_steps=len(t),
             rho_s = np.array(params.rho_s),
             f = np.array(params.f),
@@ -321,8 +352,9 @@ def run_training(print_progress=True, model_number=None):
     optimizer = th.optim.LBFGS(model.parameters(),
                                 lr=config.training.learning_rate)
 
-    criterion = nn.MSELoss(reduction="mean")
-
+    criterion1 = nn.MSELoss(reduction="mean")
+    criterion2 = nn.MSELoss(reduction="mean")
+    criterion3 = nn.MSELoss(reduction="mean")
     #
     # Set up lists to save and store the epoch errors
     epoch_errors_train = []
@@ -342,11 +374,12 @@ def run_training(print_progress=True, model_number=None):
         # gradient buffer, loss function calculation, and backpropagation
         # It is necessary for LBFGS optimizer, because it requires multiple
         # function evaluations
+       
         def closure():
             # Set the model to train mode
             ## WHY???
-            model.train()
             
+            model.train()
             # Reset the optimizer to clear data from previous iterations
             optimizer.zero_grad()
 
@@ -357,14 +390,29 @@ def run_training(print_progress=True, model_number=None):
             u_hat = model(t=t, u=u)
             if config.expdata:
                 pen_count = 0
+                pen_count_goal = 0
+                # prevent sk from being negative
                 for elem in u_hat[...,1]:
-                    if not(th.all(elem > 0)):
+                    if not(th.all(elem >= 0)):
                         pen_count+=1
+                
                 print(pen_count)
-                penalty = th.ones(1)+pen_count
-                mse = criterion(u_hat[start_index_optim:,-1,0], u[start_index_optim:,-1,0])  + penalty
+                pen_count = th.tensor(pen_count, dtype=th.float, device=model.device)
+                pen_count_goal = th.tensor(pen_count_goal, dtype=th.float, device=model.device)
+
+                mse = 0
+                for eval_index in loss_indices:
+                    
+                    mse+= (u_hat[eval_index,-1,0]-u[eval_index,-1,0])**2
+                mse = mse/len(loss_indices)
+                #mse1 = criterion1(u_hat[:,-1,0], u[:,-1,0])
+                #mse2 = criterion2(u_hat[-1,model.x_start:model.x_stop,1], u[-1,model.x_start:model.x_stop,1])
+                #mse3 = criterion3(pen_count, pen_count_goal)/10000000
+                #
+                #mse = mse1
+
             else:
-                mse = criterion(u_hat, u)
+                mse = criterion1(u_hat, u)
 
            
             mse.backward()            
