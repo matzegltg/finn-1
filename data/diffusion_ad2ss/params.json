@@ -10,13 +10,12 @@
     "v_e": 78.9, //cm/d (v_e = q/n_e; q corresponds to darcy flux, q = 35cm/d
     "init_conc": 0.032, //inital diss. concentration mug/cm^3
     "kin_sorb": 0.0053, //kinetically sorbed inital concentration mug/g 
-    "kin_sorb_end": 0.0021, //kinetically sorbed end concentration mug/g
     "T_MAX": 2, //d IF END TIME CHANGES adapt index in train.py and test.py!!!!!
     "T_STEPS": 600,
     "X_LENGTH": 55,
     "X_STEPS":28,
     "sandbool": true,
-    "number": 29, //should be the same like in config.json
+    "number": 100, //should be the same like in config.json
     "sand": {
         "top": 4,
         "bot": 24,

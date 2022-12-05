@@ -134,16 +134,16 @@ def run_training(print_progress=True, model_number=None):
             t = th.tensor(np.load(f"results/{config.model.number}/t_series.npy"),
                           dtype=th.float).to(device=device)
 
-            # spatial discretization stays the same in both cases
-            x = th.tensor(np.load(f"results/{config.model.number}/x_series.npy"),
-                          dtype=th.float).to(device=device)
+        # spatial discretization stays the same in both cases
+        x = th.tensor(np.load(f"results/{config.model.number}/x_series.npy"),
+                        dtype=th.float).to(device=device)
 
-            # adds noice with mu = 0, std = data.noise
-            u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),
-                                      th.ones_like(u[1:])*config.data.noise)
+        # adds noice with mu = 0, std = data.noise
+        u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),
+                                    th.ones_like(u[1:])*config.data.noise)
 
-            # same dx over all x
-            dx = x[1] - x[0]
+        # same dx over all x
+        dx = x[1] - x[0]
 
         # Initialize and set up the Two-Site sorption model
         # Dependeing on which parameter/functional relationship should be learned
@@ -159,11 +159,11 @@ def run_training(print_progress=True, model_number=None):
             learn_coeff=False,
             learn_f=False,
             learn_f_hyd=True,
-            learn_g_hyd=False,
-            learn_r_hyd=False,
-            learn_k_d=True,
-            learn_beta=True,
-            learn_alpha=True,
+            learn_g_hyd=True,
+            learn_r_hyd=True,
+            learn_k_d=False,
+            learn_beta=False,
+            learn_alpha=False,
             t_steps=len(t),
             rho_s=np.array(params.rho_s),
             f=np.array(params.f),
@@ -224,7 +224,7 @@ def run_training(print_progress=True, model_number=None):
         x = np.load(os.path.join(data_path, "x_series.npy"))
         u = th.tensor(np.load(os.path.join(data_path, "sample.npy")),
                              dtype=th.float).to(device=device)
-        
+
         u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
         
         dx = x[1]-x[0]
@@ -293,7 +293,7 @@ def run_training(print_progress=True, model_number=None):
                                   lr=config.training.learning_rate)
     else:
         optimizer = th.optim.LBFGS(model.parameters(),
-                                   lr=config.trainig.learning_rate)
+                                   lr=config.training.learning_rate)
 
     # Set up lists to save and store the epoch errors
     epoch_errors_train = []

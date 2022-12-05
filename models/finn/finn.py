@@ -73,8 +73,8 @@ class FINN(nn.Module):
         super(FINN, self).__init__()
         
         self.device = device
-        self.Nx = u.size()[0]
-        self.BC = th.tensor(BC, dtype=th.double).to(device=self.device)
+        self.Nx = u.size()[1]
+        self.BC = th.tensor(BC, dtype=th.float).to(device=self.device)
         self.layer_sizes = layer_sizes
         self.mode = mode
         self.cfg = config
@@ -83,21 +83,21 @@ class FINN(nn.Module):
         
         
         if not learn_coeff:
-            self.D = th.tensor(D, dtype=th.double, device=self.device)
+            self.D = th.tensor(D, dtype=th.float, device=self.device)
         else:
             # #sets as learnable parameter
-            self.D = nn.Parameter(th.tensor(D, dtype=th.double,
+            self.D = nn.Parameter(th.tensor(D, dtype=th.float,
                                             device=self.device))
         
         if not learn_stencil:
-            self.stencil = th.tensor([-1.0, 1.0], dtype=th.double,
+            self.stencil = th.tensor([-1.0, 1.0], dtype=th.float,
                                      device=self.device)
         else:
             self.stencil = th.tensor(
                 # # learnable stencil, mean=-1.0, std=0.1
                 [th.normal(th.tensor([-1.0]), th.tensor([0.1])),
                  th.normal(th.tensor([1.0]), th.tensor([0.1]))],
-                dtype=th.double, device=self.device)
+                dtype=th.float, device=self.device)
             self.stencil = nn.Parameter(self.stencil)
     
     def function_learner(self):
@@ -121,24 +121,6 @@ class FINN(nn.Module):
                 # Use sigmoid function to keep the values strictly positive
                 # (all outputs have the same sign)
                 layers.append(nn.Sigmoid())
-        return nn.Sequential(*nn.ModuleList(layers))
-    
-    def function_sk(self):
-        layers = list()
-        
-        for layer_idx in range(len(self.layer_sizes) - 1):
-            if layer_idx == 0:
-                layer = nn.Linear(in_features=self.layer_sizes[layer_idx]+1,
-                out_features=self.layer_sizes[1], bias =self.bias)
-            else:
-                layer = nn.Linear(
-                    in_features=self.layer_sizes[layer_idx],
-                    out_features=self.layer_sizes[layer_idx + 1],
-                    bias=self.bias
-                    ).to(device=self.device)
-            layers.append(layer)
-            layers.append(nn.Tanh())
-
         return nn.Sequential(*nn.ModuleList(layers))
     
 
@@ -530,6 +512,7 @@ class FINN_DiffAD2ss(FINN):
         self.learn_k_d = learn_k_d
         self.learn_beta = learn_beta
         self.sand = sand
+        self.Nx = x_steps_soil
         
         # In sand case, initialize sand parameters
         if self.sand:
@@ -732,7 +715,7 @@ class FINN_DiffAD2ss(FINN):
             
 
             f_hyd = -alpha_mod*self.rho_s/self.n_e*(1-f_mod)*(k_d_mod*c**(beta_mod-1))
-            ret = (self.f*(k_d_mod*beta_mod*c**(beta_mod-1))*(self.rho_s/self.n_e))+1
+            ret = (f_mod*(k_d_mod*beta_mod*c**(beta_mod-1))*(self.rho_s/self.n_e))+1
             g_hyd = alpha_mod*self.rho_s/self.n_e*sk
 
             # Integrate the fluxes at all boundaries of control volumes i
@@ -973,7 +956,7 @@ class FINN_AllenCahn(FINN):
         self.func_nn = self.function_learner().to(device=self.device)
         
         # Initialize the multiplier of the retardation factor function (denormalization)
-        self.p_mult = nn.Parameter(th.tensor([10.0],dtype=th.double))
+        self.p_mult = nn.Parameter(th.tensor([10.0],dtype=th.float))
     
     """
     TODO: Implement flux kernel for test (if different BC is used)
@@ -987,7 +970,7 @@ class FINN_AllenCahn(FINN):
         """
         
         ## Calculate fluxes at the left boundary of control volumes i
-        
+
         # Calculate the flux at the left domain boundary
         left_bound_flux = self.D/10*(self.stencil[0]*u[0] +
                             self.stencil[1]*u[-1])
@@ -1015,7 +998,7 @@ class FINN_AllenCahn(FINN):
         
         # Integrate the fluxes at all boundaries of control volumes i
         flux = left_flux + right_flux
-        
+        print(flux)
         return flux
     
     def state_kernel(self, t, u):
@@ -1027,6 +1010,7 @@ class FINN_AllenCahn(FINN):
         flux = self.flux_kernel(t, u)
         
         # Since there is no reaction term to be learned, du/dt = fluxes
+        print(u)
         state = flux + self.func_nn(u.unsqueeze(-1)).squeeze()*self.p_mult
         
         return state
