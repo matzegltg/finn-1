@@ -1,190 +1,211 @@
 # @File          :   data_generation_2ss.py
-# @Last modified :   2022/09/12 11:19:05
+# @Last modified :   2022/12/05 11:56:14
 # @Author        :   Matthias Gueltig
 
 """
-This script is a modified version of DS solver. To solve PDE that describes PFOS
-transport through soil
+This script can be used to solve Advection-Diffusion equation with Two-Site
+sorption model.
+Training data (1/4) of simulation time is stored in the folder data_train
+Test data (whole simulation time) is stored in the folder data_test
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-import pandas as pd
-from simulator_2ss import Simulator
 import os
+import shutil
 import sys
+import matplotlib.pyplot as plt
+import numpy as np
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+from simulator_2ss import Simulator
 
 sys.path.append("..")
 from utils.configuration import Configuration
 
-# general parameters
-TRAIN_DATA = True
-DATASET_NAME = "data"
 
-def read_exp_velocities():
-    # cm/d
-    # get velocities
-    df = pd.read_excel("Initials.xlsx", "hydraulics", skiprows=4, nrows=21, usecols="B:F")
-    v = df["cm/d"].to_numpy()
-    v = np.delete(v, 0)
-
-    meas_day = df["sampling_ time [days]"].to_numpy()
-    meas_day = np.delete(meas_day, 0)
-    return v, meas_day
-    
-def generate_sample(simulator, visualize, save_data, root_path):
-    """
-    This function generates a data sample, visualizes it if desired and saves
+def generate_sample(simulator: Simulator, visualize_data: bool,
+                    save_data: bool, train_data: bool, root_path: str):
+    """This function generates a data sample, visualizes it if desired and saves
     the data to file if desired.
-    :param simulator: The simulator object for data creation
-    :param visualize: Boolean indicating whether to visualize the data
-    :param save_Data: Boolean indicating whether to write the data to file
-    :param root_path: The root path of this script
+
+    Args:
+        simulator (Simulator): The simulator object for data creation
+        visualize_data (bool): Indicates whether to visualize the data
+        save_data (bool): Indicates whether to write the data to file
+        train_data (bool): Indicates whether to write (1/4) simulation time
+        training data.
+        root_path (str): The root path of this script
     """
 
     print("Generating data...")
 
     # Generate a data sample
+    # sample_c corresponds to the dissolved concentration, sk to the kin.
+    # sorbed mass concentrations
     sample_c, sample_sk = simulator.generate_sample()
-    
 
-    if TRAIN_DATA:
+    if visualize_data:
+        visualize_sample(sample_c=sample_c,
+                         sample_sk=sample_sk,
+                         simulator=simulator)
+    if save_data:
+        write_data_to_file(root_path=root_path, simulator=simulator,
+                           sample_c=sample_c, sample_sk=sample_sk,
+                           train_data=train_data)
 
-        if visualize:
-            visualize_sample(sample_c=sample_c, sample_sk=sample_sk, simulator=simulator)
 
-        if save_data:
-            write_data_to_file(
-                root_path=root_path,
-                simulator=simulator,
-                sample_c=sample_c,
-                sample_sk=sample_sk
-            )
+def write_data_to_file(root_path: str, simulator: Simulator,
+                       sample_c: np.ndarray, sample_sk: np.ndarray,
+                       train_data: bool):
+    """Writes the given data to the according directory in .npy format.
 
-def write_data_to_file(root_path, simulator, sample_c, sample_sk):
+    Args:
+        root_path (str): The root_path of the script.
+        simulator (Simulator): The simulataor that created the data.
+        sample_c (np.ndarray): The dissolved concentration to be written to
+        file.
+        sample_sk (np.ndarray): The kinetically sorbed concentration to be
+        written to file.
+        train_data (bool): Indicates wheter to save (1/4) simulation time
+        training data.
     """
-    Writes the given data to the according directory in .npy format.
-    :param root_path: The root_path of the script
-    :param simulator: The simulator that created the data
-    :param sample_c: The sample to be written to file (dissolved concentration)
-    :param sample_sk: The sample to be written to file (kin. sorbed concentration)
-    """
-    
-    if TRAIN_DATA:
-    
-        # Create the data directory for the training data if it does not yet exist
-        data_path = os.path.join(root_path, DATASET_NAME+"_train")
+
+    # Make new folder in FINN framework in order to access parameters.
+    # If folder already exists, ignore.
+    params = Configuration("params.json")
+    os.makedirs(f"../../models/finn/results/{params.number}", exist_ok=True)
+
+    # Store parameters.
+    shutil.copyfile("params.json",
+                    f"../../models/finn/results/{params.number}/init_params.json")
+
+    # Stack solution and store it as .npy file.
+    # u_FD.shape: (x, t, 2)
+    u_FD = np.stack((sample_c, sample_sk), axis=-1)
+    np.save(file=f"../../models/finn/results/{params.number}/u_FD.npy",
+            arr=u_FD)
+
+    # Write the t- and x-series data.
+    np.save(file=f"../../models/finn/results/{params.number}/t_series.npy",
+            arr=simulator.t)
+    np.save(file=f"../../models/finn/results/{params.number}/x_series.npy",
+            arr=simulator.x)
+
+    # Save if necessary training data.
+    if train_data:
+
+        # Create the data directory for the training data if it does not yet
+        # exist
+        data_path = os.path.join(root_path, "data"+"_train")
         os.makedirs(data_path, exist_ok=True)
-        
-        # Write the t- and x-series data along with the sample to file
+
+        # Write the t- and x-series data along with the sample to file, (1/4)
+        # of simulation time.
         np.save(file=os.path.join(data_path, "t_series.npy"),
                 arr=simulator.t[:len(simulator.t)//4 + 1])
-        
         np.save(file=os.path.join(data_path, "x_series.npy"), arr=simulator.x)
         np.save(file=os.path.join(data_path, "sample_c.npy"),
-                arr=sample_c[:len(simulator.t)//4 + 1])
+                arr=sample_c[:, :len(simulator.t)//4 + 1])
         np.save(file=os.path.join(data_path, "sample_sk.npy"),
-                arr=sample_sk[:len(simulator.t)//4 + 1])
-            
-        # Create the data directory for the extrapolation data if it does not yet exist
-        data_path = os.path.join(root_path, DATASET_NAME+"_ext")
+                arr=sample_sk[:, :len(simulator.t)//4 + 1])
+
+        # Create the data directory for the extrapolation data if it does not
+        # yet exist.
+        data_path = os.path.join(root_path, "data"+"_ext")
         os.makedirs(data_path, exist_ok=True)
-        
-        # Write the t- and x-series data along with the sample to file
+
+        # Write the t- and x-series data along with the sample to file, whole
+        # simulation time.
         np.save(file=os.path.join(data_path, "t_series.npy"), arr=simulator.t)
         np.save(file=os.path.join(data_path, "x_series.npy"), arr=simulator.x)
         np.save(file=os.path.join(data_path, "sample_c.npy"), arr=sample_c)
         np.save(file=os.path.join(data_path, "sample_sk.npy"), arr=sample_sk)
-        np.save(file="../../../../../OneDrive - bwedu/6. Semester/BA/finn_self/comp_adapt_bound/t_series.npy", arr=simulator.t)
-        np.save(file="../../../../../OneDrive - bwedu/6. Semester/BA/finn_self/comp_adapt_bound/sample_c.npy", arr=sample_c)
-        np.save(file="../../../../../OneDrive - bwedu/6. Semester/BA/finn_self/comp_adapt_bound/sample_sk.npy", arr=sample_sk)
-        
-    
+
+    # Only save whole simulation time.
     else:
 
         # Create the data directory if it does not yet exist
-        data_path = os.path.join(root_path, DATASET_NAME+"_test")
+        data_path = os.path.join(root_path, "data"+"_test")
         os.makedirs(data_path, exist_ok=True)
-    
+
         # Write the t- and x-series data along with the sample to file
         np.save(file=os.path.join(data_path, "t_series.npy"), arr=simulator.t)
         np.save(file=os.path.join(data_path, "x_series.npy"), arr=simulator.x)
         np.save(file=os.path.join(data_path, "sample_c.npy"), arr=sample_c)
         np.save(file=os.path.join(data_path, "sample_sk.npy"), arr=sample_sk)
 
-def visualize_sample(sample_c, sample_sk, simulator):
-    """
-    Method to visualize a single sample. Code taken and modified from
+
+def visualize_sample(sample_c: np.ndarray, sample_sk: np.ndarray,
+                     simulator: Simulator):
+    """Method to visualize a single sample. Code taken and modified from
     https://github.com/maziarraissi/PINNs
-    :param sample_c: The actual data sample for visualization
-    .param sample_sk: The kin. sorb. data sample for visualization
-    :param simulator: The simulator used for data generation
+
+    Args:
+        sample_c (np.ndarray): The dissolved conc. for visualization.
+        sample_sk (np.ndarray): The kin. sorbed conc. for visualization.
+        simulator (Simulator): The simulator used for data generation.
     """
-    fig, ax = plt.subplots(1,2, figsize=(10, 4))
-    
-    sample_c = np.transpose(sample_c)
-    
-    # c_w(t, x) over space and time
-    h = ax[0].imshow(sample_c, interpolation='nearest', cmap='rainbow', 
-                  extent=[simulator.t.min(), simulator.t.max(),
-                          simulator.x.min(), simulator.x.max()],
-                  origin='upper', aspect='auto')
+    fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+
+    # c(t, x) space and time
+    font_size = 22
+    h = ax[0].imshow(sample_c, interpolation="none",
+                     extent=[simulator.t.min(), simulator.t.max(),
+                             simulator.x.min(), simulator.x.max()],
+                     origin='upper', aspect='auto')
+
     divider = make_axes_locatable(ax[0])
     cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-        
+    cbar = fig.colorbar(h, cax=cax)
+    cbar.ax.tick_params(labelsize=font_size)
     ax[0].set_xlim(0, simulator.t.max())
     ax[0].set_ylim(simulator.x.min(), simulator.x.max())
-    ax[0].legend(loc="upper right", fontsize = 17)
-    ax[0].set_xlabel(r'$t [d]$', fontsize = 17)
-    ax[0].set_ylabel(r'$x [cm]$', fontsize = 17)
-    ax[0].set_title(r'$c_w(t,x) \left[\frac{\mu g}{cm^3}\right]$', fontsize = 17)
-    ax[0].tick_params(axis='x', labelsize=17)
-    ax[0].tick_params(axis='y', labelsize=17)
-    plt.yticks(fontsize=17)
-    # s_k(t,x) over space and time
-    sample_sk = np.transpose(sample_sk)
+    ax[0].legend(loc="upper right", fontsize=font_size)
+    ax[0].set_xlabel('$t [d]$', fontsize=font_size)
+    ax[0].set_ylabel('$x [cm]$', fontsize=font_size)
+    ax[0].set_title(r'$c(t,x) \left[\frac{\mu g}{cm^3}\right]$',
+                    fontsize=font_size)
+    ax[0].tick_params(axis='x', labelsize=font_size)
+    ax[0].tick_params(axis='y', labelsize=font_size)
+    plt.yticks(fontsize=font_size)
+    for label in (ax[0].get_xticklabels() + ax[0].get_yticklabels()):
+        label.set_fontsize(font_size)
 
-    h = ax[1].imshow(sample_sk, interpolation='nearest', cmap='rainbow', 
-                extent=[simulator.t.min(), simulator.t.max(),
-                        simulator.x.min(), simulator.x.max()],
-                origin='upper', aspect='auto')
+    # s_k(t,x) space and time
+    h = ax[1].imshow(sample_sk, interpolation='nearest',
+                     extent=[simulator.t.min(), simulator.t.max(),
+                             simulator.x.min(), simulator.x.max()],
+                     origin='upper', aspect='auto')
     divider = make_axes_locatable(ax[1])
     cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-        
+    cbar = fig.colorbar(h, cax=cax)
+    cbar.ax.tick_params(labelsize=font_size)
     ax[1].set_xlim(0, simulator.t.max())
     ax[1].set_ylim(simulator.x.min(), simulator.x.max())
-    ax[1].legend(loc="upper right", fontsize = 17)
-    ax[1].set_xlabel(r'$t [d]$', fontsize = 17)
-    ax[1].set_title(r'$s_k(t,x) \left[\frac{\mu g}{g}\right]$', fontsize = 17)
-    ax[1].tick_params(axis='x', labelsize=17)
-    ax[1].tick_params(axis='y', labelsize=17)
-    plt.tight_layout()
-    plt.yticks(fontsize=17)
-    
+    ax[1].legend(loc="upper right", fontsize=font_size)
+    ax[1].set_xlabel('$t [d]$', fontsize=font_size)
+    ax[1].set_title(r'$s_k(t,x) \left[\frac{\mu g}{g}\right]$',
+                    fontsize=font_size)
+    ax[1].tick_params(axis='x', labelsize=font_size)
+    ax[1].tick_params(axis='y', labelsize=font_size)
+    plt.yticks(fontsize=font_size)
+    for label in (ax[1].get_xticklabels() + ax[1].get_yticklabels()):
+        label.set_fontsize(font_size)
+
     plt.show()
+
 
 def main():
     """
     Main method used to create the datasets.
     """
-
-    ##############
-    # PARAMETERS #
-    ##############
-    
     # Determine the root path for this script and set up a path for the data
     root_path = os.path.abspath("")
 
+    # Meta data specification is recommended to be done in params.json, since
+    # data is reused in the results folder of FINN 2SS Sorption.
     params = Configuration("params.json")
 
-    # velocity = q/n_e
-    v = params.v_e
-
-    SAVE_DATA = True
-    VISUALIZE_DATA = True
+    # Perform simulation with or without sand layer
     sand = params.sandbool
     if sand:
         simulator = Simulator(
@@ -199,18 +220,17 @@ def main():
             t_steps=params.T_STEPS,
             x_right=params.X_LENGTH,
             x_steps=params.X_STEPS,
-            v=v,
+            v=params.v_e,
             a_k=params.a_k,
-            alpha_l = params.alpha_l,
-            s_k_0 = params.kin_sorb,
+            alpha_l=params.alpha_l,
+            s_k_0=params.kin_sorb,
             sand=params.sandbool,
-            n_e_sand = params.sand.porosity,
-            x_start_soil= params.sand.top,
-            x_stop_soil = params.sand.bot,
-            alpha_l_sand = params.sand.alpha_l,
-            v_e_sand = params.sand.v_e
+            n_e_sand=params.sand.porosity,
+            x_start_soil=params.sand.top,
+            x_stop_soil=params.sand.bot,
+            alpha_l_sand=params.sand.alpha_l,
+            v_e_sand=params.sand.v_e
             )
-
     else:
         simulator = Simulator(
             d_e=params.D_e,
@@ -224,21 +244,21 @@ def main():
             t_steps=params.T_STEPS,
             x_right=params.X_LENGTH,
             x_steps=params.X_STEPS,
-            v=v,
+            v=params.v_e,
             a_k=params.a_k,
             alpha_l=params.alpha_l,
-            s_k_0 = params.kin_sorb,
+            s_k_0=params.kin_sorb,
             sand=params.sandbool
         )
 
-    # Create train, validation and test data
+    # Create train and ext data
     generate_sample(simulator=simulator,
-                    visualize=VISUALIZE_DATA,
-                    save_data=SAVE_DATA,
+                    visualize_data=True,
+                    save_data=True,
+                    train_data=True,
                     root_path=root_path)
-    
+
 
 if __name__ == "__main__":
     main()
-
     print("Done.")

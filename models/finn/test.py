@@ -1,7 +1,7 @@
 #! env/bin/python3
 
 """
-Main file for testing (evaluating) a FINN model
+Main file for testing (evaluating) a FINN model. 2SS for synthetic data included.
 """
 
 import numpy as np
@@ -14,13 +14,21 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import sys
 import time
 import pickle
-import pathlib as pth
-import pandas as pd
+
 
 sys.path.append("..")
 from utils.configuration import Configuration
 from finn import *
-
+def plot_tensor(tensor):
+    fig, ax = plt.subplots(1,1)
+    h = ax.imshow(tensor.detach().numpy(), interpolation='nearest', 
+            extent=[0, 2,
+                    0, 55],
+            origin='upper', aspect='auto')
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    fig.colorbar(h, cax=cax)
+    plt.show()
 
 def run_testing(print_progress=False, visualize=False, model_number=None):
 
@@ -73,65 +81,23 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
         ).to(device=device)
     
     elif config.data.type == "diffusion_ad2ss":
+        # Load samples, together with x, y, and t series
+        params = Configuration(f"results/{config.model.number}/init_params.json")        
+        
+        u = th.tensor(np.load(f"results/{config.model.number}/u_FD.npy"),
+                            dtype=th.float).to(device=device)  
+        t = th.tensor(np.load(f"results/{config.model.number}/t_series.npy"),
+                    dtype=th.float).to(device=device)
+        x = th.tensor(np.load(f"results/{config.model.number}/x_series.npy"),
+                    dtype=th.float).to(device=device)
+        
+        # #adds noice with mu = 0, std = data.noise
+        # #for all rows apart from the first one
+        # # 1 to last in all dimensions
+        u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
 
-        params = Configuration("../../data/diffusion_ad2ss/params.json")
-        t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
-                      dtype=th.float).to(device=device)
-        x = np.load(os.path.join(data_path, "x_series.npy"))
-        if config.expdata:
-            df = pd.read_excel("../../../../../OneDrive - bwedu/6. Semester/BA/Collaborations/PFAS/Daten/220613_ColumnExperiments_Data_N1.xlsx", "N1", skiprows=9, nrows=40, usecols="B:U")
-            print(df)
-            # select PFOS row
-            exp_conc = df.iloc[[20]].to_numpy(dtype=np.float32).squeeze()
-
-            # ng/L -> mug/L
-            exp_conc = exp_conc/1000000
-            # t=0 initial concentration
-            exp_conc = np.insert(exp_conc, 0, 0)
-            exp_t = df.iloc[[35]].to_numpy(dtype=np.float32).squeeze()
-            exp_t = np.insert(exp_t, 0, 0)
-
-            t= t.numpy()
-            
-            # do interpolation
-            new_t = np.linspace(exp_t[0], exp_t[14], num=params.T_STEPS, dtype=np.float32)
-            new_exp = np.interp(new_t, exp_t, exp_conc)
-            #plt.plot(new_t, new_exp)
-            #plt.show()
-            sample_exp = th.tensor(new_exp, dtype=th.float).to(device=device)
-
-            # "upscale" to sizes required by FINN
-            sample_c = th.zeros((params.T_STEPS, params.X_STEPS), dtype=th.float32)
-            sample_sk = th.zeros((params.T_STEPS, params.X_STEPS), dtype=th.float32)
-            
-            init_conc = th.zeros(params.X_STEPS)
-            init_conc[params.sand.top:params.sand.bot] = params.init_conc
-            init_sk = th.zeros(params.X_STEPS)
-            init_sk[params.sand.top:params.sand.bot] = params.kin_sorb
-            last_sk = th.zeros(params.X_STEPS)
-            last_sk[params.sand.top:params.sand.bot] = params.kin_sorb_end
-
-            sample_c[:,-1] = sample_exp
-            sample_c[0,:] = init_conc
-            sample_sk[0,:] = init_sk
-            sample_sk[-1,:]= last_sk
-
-            u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
-            t = th.tensor(t, dtype=th.float).to(device=device)
-        else:
-            sample_c = th.tensor(np.load(os.path.join(data_path, "sample_c.npy")),
-                             dtype=th.float).to(device=device)
-            sample_sk = th.tensor(np.load(os.path.join(data_path, "sample_sk.npy")),
-                             dtype=th.float).to(device=device)                        
-            # #size: [501, 26, 2]
-            u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
-
-            # #adds noice with mu = 0, std = data.noise
-            # #for all rows apart from the first one
-            # # 1 to last in all dimensions
-            u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
-
-        dx = x[1]-x[0]
+        # same dx over all x
+        dx = x[1]-x[0]  
             
         # Initialize and set up the model
         model = FINN_DiffAD2ss(
@@ -147,11 +113,9 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
             learn_f_hyd=False,
             learn_g_hyd=False,
             learn_r_hyd=False,
-            learn_ve=False,
-            learn_k_d=False,
-            learn_beta=False,
-            learn_sk=False,
-            learn_alpha=False,
+            learn_k_d=True,
+            learn_beta=True,
+            learn_alpha=True,
             t_steps=len(t),
             rho_s = np.array(params.rho_s),
             f = np.array(params.f),
@@ -294,52 +258,58 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
     )
     print(f"Trainable model parameters: {pytorch_total_params}\n")
 
-    # Load the trained weights from the checkpoints into the model
-    ##x = th.load(os.path.join(os.path.abspath(""),
-    ##                                          "checkpoints",
-    ##                                          config.model.name,
-    ##                                          config.model.name+".pt"))
-    ##print(x)
     model.load_state_dict(th.load(os.path.join(os.path.abspath(""),
                                               "checkpoints",
                                               config.model.name,
                                               config.model.name+".pt")))
-    
+    print(model.__dict__)
     model.eval()
 
-    # Initialize the criterion (loss)
-    criterion = nn.MSELoss()
-
-    #
-    # Forward data through the model
-    time_start = time.time()
-    with th.no_grad():
-        u_hat = model(t=t, u=u)
-    if print_progress:
-        print(f"Forward pass took: {time.time() - time_start} seconds.")
-    u_hat = u_hat.detach().cpu()
-    u = u.cpu()
-    t = t.cpu()
-    pred = np.array(u_hat)
-    labels = np.array(u)
-
-    # Compute error
-    if config.expdata:
-        pass
+    # store diffusion-ad2ss data
+    if config.data.type == "diffusion_ad2ss":
+        # Forward data through the model
+        time_start = time.time()
+        with th.no_grad():
+            u_hat = model(t=t, u=u)
+        
+        if print_progress:
+            print(f"Forward pass took: {time.time() - time_start} seconds.")
+        u_hat = u_hat.detach().cpu()
+        u = u.detach().cpu()
+        t = t.detach().cpu()
+        plot_tensor(u_hat[...,0])
+        plot_tensor(u[...,0])
+        # Compute error
+        mse = nn.MSELoss()(u_hat, u)
+        print(f"MSE: {mse}")
+        with open(f"results/{config.model.number}/model.pkl", "wb") as outp:    
+            pickle.dump(model, outp, pickle.HIGHEST_PROTOCOL)
+        np.save(f"results/{config.model.number}/u_hat", u_hat)
+        np.save(f"results/{config.model.number}/u", u)
+        params.save(f"results/{config.model.number}/", filename="params_NN.json")
+        config.save(f"results/{config.model.number}/", filename="config_NN.json")
     else:
-        mse = criterion(u_hat, u)
+        # Initialize the criterion (loss)
+        criterion = nn.MSELoss()
+
+        #
+        # Forward data through the model
+        time_start = time.time()
+        with th.no_grad():
+            u_hat = model(t=t, u=u)
+        if print_progress:
+            print(f"Forward pass took: {time.time() - time_start} seconds.")
+        u_hat = u_hat.detach().cpu()
+        u = u.cpu()
+        t = t.cpu()
+
+        pred = np.array(u_hat)
+        labels = np.array(u)
+
+        # Compute error
+        mse = criterion(u_hat, u).item()
         print(f"MSE: {mse}")
 
-    with open(f"results/{config.model.number}/model.pkl", "wb") as outp:    
-        pickle.dump(model, outp, pickle.HIGHEST_PROTOCOL)
-    np.save(f"results/{config.model.number}/u_hat", u_hat)
-    np.save(f"results/{config.model.number}/u", u)
-    np.save(f"results/{config.model.number}/x", x)
-    np.save(f"results/{config.model.number}/t", t)
-    params.save(f"results/{config.model.number}/params")
-    config.save(f"results/{config.model.number}/config")
-
-    print(u_hat[:,-1,0])
     # Visualize the data
     if config.data.type == "burger" and visualize:
         u_hat = np.transpose(u_hat)
@@ -396,72 +366,11 @@ def run_testing(print_progress=False, visualize=False, model_number=None):
         plt.draw()
         plt.show()
     
-    elif config.data.type == "diffusion_ad2ss" and visualize:
-        u_hat = np.transpose(u_hat[...,0])
-        u = np.transpose(u[...,0])
-
-        fig, ax = plt.subplots(1, 2, figsize=(10, 4))
     
-        # u(t, x) over space
-        h = ax[0].imshow(u, interpolation='nearest', 
-                      extent=[t.min(), t.max(),
-                              x.min(), x.max()],
-                      origin='upper', aspect='auto')
-        divider = make_axes_locatable(ax[0])
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        fig.colorbar(h, cax=cax)
-    
-        ax[0].set_xlim(0, t.max())
-        ax[0].set_ylim(x.min(), x.max())
-        ax[0].legend(loc="upper right")
-        ax[0].set_xlabel('$t$')
-        ax[0].set_ylabel('$x$')
-        ax[0].set_title('$u(t,x)$', fontsize = 10)
-        
-        l = ax[1].imshow(u_hat, interpolation='nearest', 
-                      extent=[t.min(), t.max(),
-                              x.min(), x.max()],
-                      origin='upper', aspect='auto')
-        divider = make_axes_locatable(ax[0])
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        fig.colorbar(l, cax=cax)
-    
-        ax[1].set_xlim(0, t.max())
-        ax[1].set_ylim(x.min(), x.max())
-        ax[1].legend(loc="upper right")
-        ax[1].set_xlabel('$t$')
-        ax[1].set_ylabel('$x$')
-        ax[1].set_title('$u(t,x)$', fontsize = 10)
-        
-        # u(t, x) over time
-        fig, ax = plt.subplots()
-        line1, = ax.plot(x, u[:, 0], 'b-', linewidth=2, label='Exact')
-        line2, = ax.plot(x, u_hat[:, 0], 'ro', linewidth=2, label='Prediction')
-        ax.set_xlabel('$x$')
-        ax.set_ylabel('$u(t,x)$')    
-        ax.set_xlim([x.min(), x.max()])
-        ax.set_ylim([-1.1, 1.1])
-    
-        anim = animation.FuncAnimation(fig,
-                                       animate_1d,
-                                       frames=len(t),
-                                       fargs=(line1, line2, u, u_hat),
-                                       interval=20)
-        plt.tight_layout()
-        plt.draw()
-        plt.show()
-        
-        plt.figure()
-        plt.plot(x,u_hat[:,-1])
-        plt.scatter(x,u[:,-1])
-
     elif config.data.type == "diffusion_sorption" and visualize:
-        print(u_hat.shape)
         u_hat = np.transpose(u_hat[...,0])
-        print(u_hat.shape)
         u = np.transpose(u[...,0])
-        print(u)
-        print(u_hat)
+    
         fig, ax = plt.subplots(1, 2, figsize=(10, 4))
     
         # u(t, x) over space

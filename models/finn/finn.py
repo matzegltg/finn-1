@@ -1,19 +1,14 @@
 """
 Finite Volume Neural Network implementation with PyTorch.
 """
-
-from decimal import DivisionByZero
-from types import DynamicClassAttribute
 from sklearn.preprocessing import StandardScaler
 import torch.nn as nn
 import torch as th
 from torchdiffeq import odeint
-import time
+from typing import Optional
 import numpy as np
 #from torchdiffeq import odeint_adjoint as odeint
 
-
-import time
 
 
 class FINN(nn.Module):
@@ -78,7 +73,7 @@ class FINN(nn.Module):
         super(FINN, self).__init__()
         
         self.device = device
-        self.Nx = u.size()[1]
+        self.Nx = u.size()[0]
         self.BC = th.tensor(BC, dtype=th.double).to(device=self.device)
         self.layer_sizes = layer_sizes
         self.mode = mode
@@ -145,6 +140,7 @@ class FINN(nn.Module):
             layers.append(nn.Tanh())
 
         return nn.Sequential(*nn.ModuleList(layers))
+    
 
 class Wrapper(nn.Module):
     def __init__(self, f):
@@ -416,95 +412,126 @@ class FINN_DiffSorp(FINN):
 
 class FINN_DiffAD2ss(FINN):
     """
-    This is the inherited FINN class for the diffusion-sorption equation implementation.
+    This is the inherited FINN class for the transport equation with 2ss model
+    implementation.
     This class inherits all parameter from the parent FINN class.
     """
-    def __init__(self, u, D, BC, dx, layer_sizes, device, rho_s, f, k_d, beta, n_e, 
-                alpha, v_e, t_steps, learn_f_hyd, learn_r_hyd, learn_g_hyd, learn_alpha,
-                learn_beta, learn_sk,
-                sand, D_sand=None, n_e_sand=None, x_start_soil=None, x_stop_soil=None,
-                x_steps_soil=None, alpha_l_sand=None, v_e_sand=None, mode="train",
-                config=None, learn_coeff=True, learn_stencil=False, bias=True,
-                sigmoid=True, learn_f=False, learn_k_d=True, learn_ve=True):
-        
+    def __init__(self, u:th.Tensor, D:np.ndarray, BC:np.ndarray, dx: float, 
+                 layer_sizes:list, device:str, rho_s:np.ndarray, f:np.ndarray,
+                 k_d:np.ndarray, beta:np.ndarray, n_e:np.ndarray, alpha:np.ndarray,
+                 v_e:np.ndarray, t_steps:int, x_steps_soil:int, learn_f_hyd:bool, learn_r_hyd:bool,
+                 learn_g_hyd:bool, learn_alpha:bool, learn_beta:bool, learn_f:bool, 
+                 learn_k_d:bool,sand:bool, D_sand:Optional[np.ndarray]=None, 
+                 n_e_sand:Optional[np.ndarray]=None, x_start_soil:Optional[int]=None, 
+                 x_stop_soil:Optional[int]=None, alpha_l_sand:Optional[np.ndarray]=None,
+                 v_e_sand:Optional[np.ndarray]=None, mode="train", config=None, learn_coeff=True, learn_stencil=False, 
+                 bias=True, sigmoid=True):
+        """Constructor of FINN_AD2ss class
+
+        Args:
+            u (th.Tensor): stacked c and sk
+            D (np.ndarray): Dispersion in contaminant soil
+            BC (np.ndarray): In this case only top boundary condition (dirichlet)
+            can be modified. 
+            dx (float): spatial step size
+            layer_sizes (list): List that describes the architecture of the DNN
+            device (str): CPU vs GPU
+            rho_s (np.ndarray): mass density of contaminant soil
+            f (np.ndarray): share of kinetic and instanteaneous sorption 
+            (f=0) -> only kinetic sorption
+            k_d (np.ndarray): Freundlich proportional constant
+            beta (np.ndarray): Freundlich exponent
+            n_e (np.ndarray): Porosity of contaminant soil
+            alpha (np.ndarray): Kinetic rate constant in s_k ODE
+            v_e (np.ndarray): effective velocity (q/n_e)
+            t_steps (int): Number of steps used for temporal discretization.
+            x_steps_soil (int): Number of steps used for spatial discretization.
+            learn_f_hyd (bool): True, if timedependent F should be learned.
+            learn_r_hyd (bool): True, if timedependent R should be learned.
+            learn_g_hyd (bool): True, if timedependent G should be learned.
+            learn_alpha (bool): True, if parameter alpha should be learned.
+            learn_beta (bool): True, if parameter beta should be learned.
+            learn_f (bool): True, if parameter f should be learned.
+            learn_k_d (bool): True, if parameter k_d should be learned.
+            sand (bool): True if transport happens through two sand layers at the
+            top and the bottom of the column.
+            D_sand (Optional[np.ndarray], optional): Effective Dispersion coefficient sand.
+            Defaults to None.
+            n_e_sand (Optional[np.ndarray], optional): Effective porosity sand. Defaults to None.
+            x_start_soil (Optional[int], optional): Index of last row of upper sand layer. Defaults to None.
+            x_stop_soil (Optional[int], optional): Index of last row of contaminant soil. Defaults to None.
+            alpha_l_sand (Optional[np.ndarray], optional): Longitudinal dispersivity of sand. Defaults to None.
+            v_e_sand (Optional[np.ndarray], optional): Effective velocity through sand (q/n_(e,sand)). Defaults to None.
+            mode (str, optional): see super class. Defaults to "train".
+            config (_type_, optional): see super class. Defaults to None.
+            learn_coeff (bool, optional): see super class. Defaults to True.
+            learn_stencil (bool, optional): see super class. Defaults to False.
+            bias (bool, optional): see super class. Defaults to True.
+            sigmoid (bool, optional): see super class. Defaults to True.
+        """
         super().__init__(u, D, BC, layer_sizes, device, mode, config, learn_coeff,
                          learn_stencil, bias, sigmoid)
-        
-        """
-        Constructor.
-        
-        Inputs:
-        Same with the parent FINN class, with the addition of dx (the spatial resolution)
-        
-        :param rho_s: soil density
-        :type rho_s: np.array
 
-        :param f: share of instantaneously sorbed concentration
-
-        :k_d: freundlich isotherm parameter
-
-        :beta: freundlich isotherm proportional coefficient
-        
-        :n_e: effective porosity
-
-        :alpha: first order rate constant
-
-        :v_e: effective velocity 
-        """
         # potentially learnable parameters
         if not learn_f:
             self.f = th.tensor(f, dtype=th.double, device=self.device)
         else:
-            self.f = nn.Parameter(th.tensor(f, dtype=th.double,
-                                            device=self.device))
-            print(self.f)
+            # Transform input f into f_FINN by using inverse sigmoid function.
+            # Evaluation of f will put the sigmoid function afterwards.
+            f = -np.log(1/f - 1)
+            self.f = nn.Parameter(th.tensor(f, dtype=th.double, 
+                device=self.device))
+
         if not learn_k_d:
             self.k_d = th.tensor(k_d,dtype=th.double, device=self.device)
         else:
             self.k_d = nn.Parameter(th.tensor(k_d, dtype=th.double, device=self.device))
 
-        if not learn_ve:
-            self.v_e = th.tensor(v_e, dtype=th.double, device=self.device)
-        else:
-            self.v_e = nn.Parameter(th.tensor(v_e, dtype=th.double, device=self.device))
-
         if not learn_beta:
             self.beta = th.tensor(beta, dtype=th.double, device=self.device)
         else:
+            # Transform input beta into beta_FINN by using invere sigmoid function.
+            # Evaluation of beta will put the sigmoid function afterwards.
+            beta = -np.log(1/beta -1)
             self.beta = nn.Parameter(th.tensor(beta, dtype=th.double, device=self.device))
-        
+
         if not learn_alpha:
             self.alpha = th.tensor(alpha, dtype=th.double, device=self.device)
         else:
             self.alpha = nn.Parameter(th.tensor(alpha, dtype=th.double, device=self.device))
 
+        # Initialize functional relations by calling the function_learner with
+        # corresponding initial scalings
         if learn_f_hyd:
             self.func_f = self.function_learner().to(device=self.device)
-            self.f_fac = nn.Parameter(th.tensor([1.0], dtype=th.double))
+            self.f_fac = nn.Parameter(th.tensor([1/100], dtype=th.double))
+
         if learn_r_hyd:
             self.func_r = self.function_learner().to(device=self.device)
-            self.ret_fac = nn.Parameter(th.tensor([1.0], dtype=th.double))
+            self.ret_fac = nn.Parameter(th.tensor([1], dtype=th.double))
 
         if learn_g_hyd:
             self.func_g = self.function_learner().to(device=self.device)
-            self.g_fac = nn.Parameter(th.tensor([1.0], dtype=th.double))
-        
-        if learn_sk:
-            self.func_sk = self.function_sk().to(device=self.device)
-            self.sk_fac = nn.Parameter(th.tensor([0.01], dtype=th.double))
-        
-        # For testing FV solver without optimization
-        #self.z = nn.Parameter(th.tensor([0],dtype=th.double, requires_grad=True))
-        # potentially non-learnable parameters
-        self.dx = th.tensor(dx, dtype=th.double, device=self.device)
-        self.rho_s = th.tensor(rho_s, dtype=th.double, device=self.device)        
+            self.g_fac = nn.Parameter(th.tensor([1/1000], dtype=th.double))
 
+        # For testing FV solver without optimization
+        # self.z = nn.Parameter(th.tensor([1],dtype=th.double, requires_grad=True))
+        
+        # non-learnable parameters
+        self.dx = dx
+        self.rho_s = th.tensor(rho_s, dtype=th.double, device=self.device)        
+        self.v_e = th.tensor(v_e, dtype=th.double, device=self.device)
         self.n_e  = th.tensor(n_e, dtype=th.double, device=self.device)
         self.learn_f_hyd = learn_f_hyd
         self.learn_g_hyd = learn_g_hyd
         self.learn_r_hyd = learn_r_hyd
-        self.learn_sk = learn_sk
+        self.learn_f = learn_f
+        self.learn_alpha = learn_alpha
+        self.learn_k_d = learn_k_d
+        self.learn_beta = learn_beta
         self.sand = sand
+        
+        # In sand case, initialize sand parameters
         if self.sand:
             self.D_sand = th.tensor(D_sand, dtype=th.double, device=self.device)
             self.n_e_sand = th.tensor(n_e_sand, dtype=th.double, device=self.device)
@@ -513,42 +540,74 @@ class FINN_DiffAD2ss(FINN):
             self.x_steps_soil = th.tensor(x_steps_soil, dtype=th.int, device=self.device)
             self.alpha_l_sand = th.tensor(alpha_l_sand, dtype=th.double, device=self.device)
             self.v_e_sand = th.tensor(v_e_sand, dtype=th.double, device=self.device)
-        
-        # counter for time dependent neural network
-        # which of the timestep input feature should be used. The others are 
-        # set to zero
-        self.t_steps = t_steps
 
-        
-    
-    """
-    TODO: Implement flux kernel for test (if different BC is used)
-    """
-        
     def flux_kernel(self, t, u):
         """
         This function defines the flux kernel for training, which takes ui and its
         neighbors as inputs, and returns the integrated flux approximation (up to
         second order derivatives)
-        ## u = [[c, sk]] all spatials at one time step
         """
-        # Separate u into c and ct
+        
+        # PHYSICAL INFORMATION:
+        # Evaluate f_FINN and beta_FINN by using sigmoid function in order to 
+        # keep 0 < f, beta < 1.
+        if self.learn_f:
+            f_mod = th.sigmoid(self.f)
+        else:
+            f_mod = self.f
+        if self.learn_beta:
+            beta_mod = th.sigmoid(self.beta)
+        else:
+            beta_mod = self.beta
+            
+        # PHYSICAL INFORMATION:
+        # Evaluate alpha_FINN and k_d_FINN by using abs function in order to
+        # keep them strictly positive.
+        if self.learn_alpha:
+            alpha_mod= th.abs(self.alpha)
+        else:
+            alpha_mod = self.alpha
+        if self.learn_k_d:
+            k_d_mod = th.abs(self.k_d)
+        else:
+            k_d_mod = self.k_d
+
+        # Receive c and sk from stacked arrangement
         c = u[...,0]
         sk = u[...,1]
- 
+        
         if self.sand:
-            
             cw_soil= c[self.x_start:self.x_stop]
             sk_soil = sk[self.x_start:self.x_stop]
-
+            
+            # Apply the ReLU function for upwind scheme to prevent numerical
+            # instability
             v_soil = self.v_e
             v_soil_plus = th.relu(v_soil)
+            
+            # remains always zero since v_soil > 0
             v_soil_min = -th.relu(-v_soil)
 
             v_sand = self.v_e_sand
             v_sand_plus = th.relu(v_sand)
+            
+            # If training with dummy parameter, uncomment needed, since at least
+            # one parameter has to be added to computational graph
+            #v_sand_min = -th.relu(-v_sand) + self.z
+            
+            # remains always zero since v_sand > 0
             v_sand_min = -th.relu(-v_sand)
 
+            
+            # Example of slicing through torch tensors. With corresponding start,
+            # stop and X_STEPS indices. 
+            # start: 7, stop: 48, X_STEPS: 56
+            # c[:self.x_start-1] = c1 ... c6
+            # c[1:self.x_start] = c2 ... c7
+            # c[self.x_start:self.x_stop] = c8 ... c48
+            # c[self.x_stop+1:] = c50 ... c56
+            # c[self.x_stop:-1] = c49 ... c55
+            # c[self.x_stop:]) = c49 ... c56#
 
             # top boundary fluxes
             top_bound_flux = (self.D_sand/(self.dx**2)*(self.stencil[0]*c[0] +
@@ -556,13 +615,6 @@ class FINN_DiffAD2ss(FINN):
                             v_sand_plus/self.dx*(-self.stencil[0]*c[0] -
                             self.stencil[1]*self.BC[0])).unsqueeze(0)
 
-            # start: 7, stop: 48, X_STEPS: 56
-            # c[:self.x_start-1] = c1 ... c6
-            # c[1:self.x_start] = c2 ... c7
-            # c[self.x_start:self.x_stop] = c8 ... c48
-            # c[self.x_stop+1:] = c50 ... c56
-            # c[self.x_stop:-1] = c49 ... c55
-            # c[self.x_stop:]) = c49 ... c56
             top_flux_sand_top = self.D_sand/(self.dx**2)*(self.stencil[0]*c[1:self.x_start] +
                             self.stencil[1]*c[:self.x_start-1]) -\
                             v_sand_plus/self.dx*(-self.stencil[0]*c[1:self.x_start] -
@@ -587,82 +639,68 @@ class FINN_DiffAD2ss(FINN):
 
             bot_flux = th.cat((bot_flux_sand_top, bot_flux_soil, bot_flux_sand_bot, bot_bound_flux))
 
-            sc = StandardScaler()
 
+            # PHYSICAL INFORMATION:
+            # F(c) occurs in contaminant soil layer. In sand holds F(c) = 0, no
+            # functional relation can be learned in the sand.
             if not self.learn_f_hyd:
                 f_hyd = th.zeros(self.Nx)
-                f_hyd[self.x_start:self.x_stop] = -self.alpha*self.rho_s/self.n_e*(1-self.f)*(self.k_d*cw_soil**(self.beta-1))
-                
+                f_hyd[self.x_start:self.x_stop] = -alpha_mod*self.rho_s/self.n_e*(1-f_mod)*(k_d_mod*cw_soil**(beta_mod-1))    
             else:
-                time_vec = th.ones([self.Nx])*t
-                t_c = th.stack((c, time_vec), dim=1)
-                f_hyd = self.func_f(t_c.float())*self.f_fac
-                f_hyd = f_hyd.squeeze(-1)
+                # According to definitions F(c) >= 0, scaling is needed since potentially
+                # larger output than sigmoid (0 < sig(x) < 1)
+                time_vec = th.ones([len(cw_soil)])*t
+                t_c = th.stack((cw_soil, time_vec), dim=1)
+                f_hyd = th.zeros(self.Nx)
+                f_hyd[self.x_start:self.x_stop] = (-self.func_f(t_c.float())*th.abs(self.f_fac))[:,0]
 
+            # PHYSICAL INFORMATION:
+            # R(C) occurs in contaminant soil layer. In sand holds R(c) = 1, no
+            # functional relation can be learned in the sand.
             if not self.learn_r_hyd:
                 ret = th.ones(self.Nx)
-                ret[self.x_start:self.x_stop] = (self.f*(self.k_d*self.beta*cw_soil**(self.beta-1))*(self.rho_s/self.n_e))+1
-
+                ret[self.x_start:self.x_stop] = (f_mod*(k_d_mod*beta_mod*cw_soil**(beta_mod-1))*(self.rho_s/self.n_e))+1
             else:
+                # According to definitions R(c) >= 1, scaling is needed since potentially
+                # larger output than sigmoid (0 < sig(x) < 1)
                 time_vec = th.ones([self.Nx])*t
-                #c_fit = sc.fit_transform(c.reshape(1,-1).detach().numpy())
-                #print(c_fit)
-                #c_norm = th.tensor(c_fit, dtype=th.float64, device=self.device)
                 t_c = th.stack((c, time_vec), dim=1)
                 t_c.unsqueeze(-1)
-                #t_c_norm = th.tensor(t_c_norm, dtype=th.float64, device=self.device)
-                #t_c_norm = t_c_norm[:,0].unsqueeze(-1)
-                # phsics informed: ret > 1 and larger than sigmoid output ([0,1])
                 ret = 1+self.func_r(t_c.float())*(10**self.ret_fac)
                 ret = ret.squeeze(-1)
             
+            # PHYSICAL INFORMATION:
+            # G(s_k) occurs in contaminant soil layer. In sand holds G(s_k) = 0,
+            # no functional relation can be learned in the sand.
             if not self.learn_g_hyd:
                 g_hyd = th.zeros(self.Nx)
-                g_hyd[self.x_start:self.x_stop] = self.alpha*self.rho_s/self.n_e*sk_soil
-                
-                
+                g_hyd[self.x_start:self.x_stop] = alpha_mod*self.rho_s/self.n_e*sk_soil
             else:
-                time_vec = th.ones([self.Nx])*t
-                t_sk = th.stack((sk, time_vec), dim=1)
-                t_sk.unsqueeze(-1)
-                g_hyd = self.func_g(t_sk.float())*self.g_fac
-                g_hyd = g_hyd.squeeze(-1)
-            
+                time_vec = th.ones(len(sk_soil))*t
+                t_sk = th.stack((sk_soil, time_vec), dim=1)
+                g_hyd = th.zeros(self.Nx)
+                g_hyd[self.x_start:self.x_stop] = (self.func_g(t_sk.float())*th.abs(self.g_fac))[:,0]
+
             # Integrate the fluxes at all boundaries of control volumes i
             flux_c = (top_flux + bot_flux+f_hyd*c+g_hyd)/ret
 
-            # sk flux
+            # Calculate sk flux using F, G, and R
             flux_sk=th.zeros(self.Nx)
-            if not self.learn_sk:
-                #flux_sk[self.x_start:self.x_stop]=(self.n_e/self.rho_s)*(self.alpha*(self.k_d*cw_soil**self.beta-sk[self.x_start:self.x_stop]))
-                flux_sk[self.x_start:self.x_stop] = -f_hyd[self.x_start:self.x_stop]*(self.n_e/self.rho_s)*cw_soil-g_hyd[self.x_start:self.x_stop]*(self.n_e/self.rho_s)
-            else:
-                
-                time_vec = th.ones([self.Nx])*t
-                t_c = th.stack((c, sk, time_vec), dim=1)
-                t_c.unsqueeze(-1)
-                #print(t_c_norm)
-                flux_sk[self.x_start:self.x_stop] = (self.func_sk(t_c.float())[self.x_start:self.x_stop]*self.sk_fac).squeeze(-1)
-                #print(flux_sk)
-                # allow negative values
-                #flux_sk[self.x_start:self.x_stop] = -th.log((1/(flux_sk[self.x_start:self.x_stop]+1e-8))-1)
-                flux_sk = flux_sk.squeeze(-1)
-                #time.sleep(1)
-            
+            flux_sk[self.x_start:self.x_stop] = -f_hyd[self.x_start:self.x_stop]*(self.n_e/self.rho_s)*cw_soil-g_hyd[self.x_start:self.x_stop]*(self.n_e/self.rho_s) 
             flux = th.stack((flux_c, flux_sk), dim=len(c.size()))
-            
             return flux
 
         else:
+            # WARNING: For non-sand scenario only learning of parameter was implemented.
+            # Learning functional relations can easily be added using functions from
+            # sand and soil scenario.
+            
+            # Like above, initialization of the velocity with relu function
+            # using non-learnable effective velocities is not needed, however to follow
+            # consistency in FINN code this formulation was taken over. 
             a = th.ones([self.Nx,1], dtype=th.double, device=self.device)*self.v_e
-            # Apply the ReLU function for upwind scheme to prevent numerical
-            # instability
             a_plus = th.relu(a[...,0])
-            
-            # a_min = -0 since a = 30
             a_min = -th.relu(-a[...,0])
-            
-            ## Calculate fluxes at the top boundary of control volumes i
 
             # Calculate the flux at the top domain boundary
             top_bound_flux = (self.D/(self.dx**2)*(self.stencil[0]*c[0] +
@@ -680,7 +718,7 @@ class FINN_DiffAD2ss(FINN):
             top_flux = th.cat((top_bound_flux, top_neighbors))
             ## Calculate fluxes at the right boundary of control volumes i
             
-            # Calculate the flux at the right domain boundary -> Neumann -> zero??
+            # Calculate the flux at the right domain boundary -> Neumann -> zero
             bot_bound_flux = th.tensor(0).unsqueeze(0)
             
             # Calculate the fluxes between control volumes i and their right neighbors
@@ -693,64 +731,32 @@ class FINN_DiffAD2ss(FINN):
             bot_flux = th.cat((bot_neighbors, bot_bound_flux))
             
 
-                
-            if not self.learn_f_hyd:
-                f_hyd = -self.alpha*self.rho_s/self.n_e*(1-self.f)*(self.k_d*c**(self.beta-1))
-                
-            else:
-                time_vec = th.ones([self.Nx])*t
-                t_c = th.stack((c.float(),time_vec), dim=1)
-                f_hyd = self.func_f(t_c)*self.f_fac
-                f_hyd = f_hyd.squeeze(-1)
-            
-            if not self.learn_r_hyd:
-                ret = (self.f*(self.k_d*self.beta*c**(self.beta-1))*(self.rho_s/self.n_e))+1
+            f_hyd = -alpha_mod*self.rho_s/self.n_e*(1-f_mod)*(k_d_mod*c**(beta_mod-1))
+            ret = (self.f*(k_d_mod*beta_mod*c**(beta_mod-1))*(self.rho_s/self.n_e))+1
+            g_hyd = alpha_mod*self.rho_s/self.n_e*sk
 
-            else:
-                time_vec = th.ones([self.Nx])*t
-                t_c = th.stack((c.float(), time_vec), dim=1)
-
-                # phsics informed: ret > 1 and larger than sigmoid output ([0,1])
-                ret = 1+self.func_r(t_c)*(10**self.ret_fac)
-                ret = ret.squeeze(-1)
-            
-            if not self.learn_g_hyd:
-                g_hyd = self.alpha*self.rho_s/self.n_e*sk
-                
-            else:
-                time_vec = th.ones([self.Nx])*t
-                t_c = th.stack((c.float(), time_vec), dim=1)
-                g_hyd = self.func_g(t_c)*th.abs(self.g_fac)
-                g_hyd = g_hyd.squeeze(-1)
-                
             # Integrate the fluxes at all boundaries of control volumes i
             flux_c = (top_flux + bot_flux+f_hyd*c+g_hyd)/ret
 
-            # total concentration
+            # Calculate changes in sk
             flux_sk = -f_hyd*(self.n_e/self.rho_s)*c-g_hyd*(self.n_e/self.rho_s)
             flux = th.stack((flux_c, flux_sk), dim=len(c.size()))
 
-        
             return flux
     
-    def state_kernel(self, t, u):
-        """
-        This function defines the state kernel for training, which takes the
-        fluxes as inputs, and returns du/dt)
-        """
-    
-        state = self.flux_kernel(t, u)
-        return state
     
     def forward(self, t, u):
         """
         This function integrates du/dt through time using the Neural ODE method
         """
         
-        # The odeint function receives the function state_kernel that calculates
+        # The odeint function receives the function flux_kernel that calculates
         # du/dt, the initial condition u[0], and the time at which the values of
         # u will be saved t
-        pred = odeint(self.state_kernel, u[0], t, method="euler")
+        pred = odeint(self.flux_kernel, u[:,0,:], t, method="euler")
+
+        # returns pred.shape: (x, t, 2)
+        pred = pred.transpose(0,1)
         return pred
 
 class FINN_DiffReact(FINN):

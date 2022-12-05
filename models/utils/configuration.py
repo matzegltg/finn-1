@@ -43,7 +43,7 @@ class Dict(dict):
                 else:
                     self[name] = data
 
-    def save(self, path):
+    def save(self, path, filename="cfg.json"):
         """
         Saves the dictionary into a json file
         :param path: Path of the json file
@@ -51,7 +51,7 @@ class Dict(dict):
         if not os.path.exists(path):
             os.makedirs(path)
 
-        path = os.path.join(path, 'cfg.json')
+        path = os.path.join(path, f'{filename}')
 
         with open(path, 'w') as file:
             json.dump(self, file, indent=True)

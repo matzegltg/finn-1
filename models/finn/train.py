@@ -1,17 +1,17 @@
-#! env/bin/python3
+# @File          :   train.py
+# @Last modified :   2022/12/05 17:53:42
+# @Author        :   Matthias Gueltig
 
 """
-Main file for training a model with FINN
+Main file for training a model with FINN, including the 2SS - Model. For learning,
+synthetic data is used
 """
 
 import os
-from pickletools import uint2
 import sys
 import time
 from threading import Thread
 
-import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
 import torch as th
 import torch.nn as nn
@@ -22,12 +22,11 @@ from utils.configuration import Configuration
 
 from finn import *
 
-
 def run_training(print_progress=True, model_number=None):
 
     # Load the user configurations
     config = Configuration("config.json")
-    
+
     # Append the model number to the name of the model
     if model_number is None:
         model_number = config.model.number
@@ -41,10 +40,10 @@ def run_training(print_progress=True, model_number=None):
     if config.general.device == "CPU":
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
-        
+
     root_path = os.path.abspath("../../data")
     data_path = os.path.join(root_path, config.data.type, config.data.name)
-    
+
     # Set device on GPU if specified in the configuration file, else CPU
     # device = helpers.determine_device()
     device = th.device(config.general.device)
@@ -111,141 +110,83 @@ def run_training(print_progress=True, model_number=None):
     
     elif config.data.type == "diffusion_ad2ss":
 
-        # Load samples, together with x, y, and t series
-        params = Configuration("../../data/diffusion_ad2ss/params.json")
-        t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
-                      dtype=th.float).to(device=device)
-        x = np.load(os.path.join(data_path, "x_series.npy"))
-        # Interpolation of experimental data
-        if config.expdata:
-            df = pd.read_excel("../../../../../OneDrive - bwedu/6. Semester/BA/Collaborations/PFAS/Daten/220613_ColumnExperiments_Data_N1.xlsx", "N1", skiprows=9, nrows=40, usecols="B:U")
-            print(df)
-            # select PFOS row
-            exp_conc = df.iloc[[20]].to_numpy(dtype=np.float32).squeeze()
+        # Load samples, together with x, y, and t series.
+        # If parameters are learned, initial guesses should be defined in the
+        # init_params.json
+        params = Configuration(f"results/{config.model.number}/init_params.json")
 
-            # ng/L -> mug/L -> mug/cm^3
-            exp_conc = exp_conc/1000000
-            # t=0 initial concentration
-            exp_conc = np.insert(exp_conc, 0, 0)
-            exp_t = df.iloc[[35]].to_numpy(dtype=np.float32).squeeze()
-            exp_t = np.insert(exp_t, 0, 0)
+        # synthetic data is used
+        if config.data.name == "data_train":
+            t = np.load(f"results/{config.model.number}/t_series.npy")
+            u = np.load(f"results/{config.model.number}/u_FD.npy")
 
-            # average concentrations -> shift to middle value of times
-            exp_mean_t = []
-            for i in range(0,len(exp_t)):
-                if i == 0:
-                    exp_mean_t.append(exp_t[i])
-                else:
-                    exp_mean_t.append((exp_t[i] + exp_t[i-1])/2) 
-            
-            t= t.numpy()
+            # only use (1/4) of synthetic data set
+            u = u[:, :len(t) // 4 + 1, :]
+            t = t[:len(t) // 4 + 1]
 
-            dt = t[1]-t[0]
-            # do interpolation
-            # WARNING TO ADAPT IF DIFFERENT TIMES ARE USED
-            new_t = np.linspace(exp_mean_t[0], exp_mean_t[-1], num=params.T_STEPS, dtype=np.float32)
-            new_exp = np.interp(new_t, exp_mean_t, exp_conc)
-            fig, ax = plt.subplots()
-            ax.plot(new_t, new_exp, label = "Interpolation")
-            ax.scatter(exp_t, exp_conc, color="y", label="Original times")
-            ax.scatter(exp_mean_t, exp_conc, color="r", label="Averaged times")
-            ax.set_xlabel(r'$t [d]$', fontsize=17)
-            ax.set_ylabel(r'conc PFOS $\left[\frac{\mu g}{cm^3}\right]$', fontsize=17)
-            ax.set_title('Experimental BTC', fontsize=17)
-            ax.tick_params(axis='x', labelsize=17)
-            ax.tick_params(axis='y', labelsize=17)
-            ax.set_yscale("log")
-            ax.legend()
-            plt.savefig("exp_data")
-
-            sample_exp = th.tensor(new_exp, dtype=th.float).to(device=device)
-
-            # "upscale" to sizes required by FINN
-            sample_c = th.empty((params.T_STEPS, params.X_STEPS), dtype=th.float32)
-            sample_sk = th.empty((params.T_STEPS, params.X_STEPS), dtype=th.float32)
-            
-            init_conc = th.zeros(params.X_STEPS)
-            init_conc[params.sand.top:params.sand.bot] = params.init_conc
-            init_sk = th.zeros(params.X_STEPS)
-            init_sk[params.sand.top:params.sand.bot] = params.kin_sorb
-            last_sk = th.zeros(params.X_STEPS)
-            last_sk[params.sand.top:params.sand.bot] = params.kin_sorb_end
-            sample_c[:,-1] = sample_exp
-            sample_c[0,:] = init_conc
-            sample_sk[0,:] = init_sk
-            sample_sk[-1,:]= last_sk
-
-            # get indices of time where experimental data is available
-            loss_indices = []
-            for meas_point in exp_mean_t:
-                for i in range(len(new_t)):
-                    if np.abs(new_t[i]-meas_point) <= 0.01:
-                        loss_indices.append(i)
-                        break
-            
-            u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
-            
-            t = th.tensor(new_t, dtype=th.float).to(device=device)
-
-            
+            # transform numpy arrays to pytorch tensors
+            u = th.tensor(u, dtype=th.float).to(device=device)
+            t = th.tensor(t, dtype=th.float).to(device=device)
         else:
-            sample_c = th.tensor(np.load(os.path.join(data_path, "sample_c.npy")),
-                             dtype=th.float).to(device=device)
-            sample_sk = th.tensor(np.load(os.path.join(data_path, "sample_sk.npy")),
-                             dtype=th.float).to(device=device)                        
-            # #size: [501, 26, 2]
-            u = th.stack((sample_c, sample_sk), dim=len(sample_c.shape))
+            # use whole synthetic data set for training
+            u = th.tensor(np.load(f"results/{config.model.number}/u_FD.npy"),
+                          dtype=th.float).to(device=device)
+            t = th.tensor(np.load(f"results/{config.model.number}/t_series.npy"),
+                          dtype=th.float).to(device=device)
 
-            # #adds noice with mu = 0, std = data.noise
-            # #for all rows apart from the first one
-            # # 1 to last in all dimensions
-            u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
+            # spatial discretization stays the same in both cases
+            x = th.tensor(np.load(f"results/{config.model.number}/x_series.npy"),
+                          dtype=th.float).to(device=device)
 
-        # #same dx over all x
-        dx = x[1]-x[0]  
-        
-        # Initialize and set up the model
+            # adds noice with mu = 0, std = data.noise
+            u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),
+                                      th.ones_like(u[1:])*config.data.noise)
+
+            # same dx over all x
+            dx = x[1] - x[0]
+
+        # Initialize and set up the Two-Site sorption model
+        # Dependeing on which parameter/functional relationship should be learned
+        # corresponding boolean variables have to be changed
         model = FINN_DiffAD2ss(
-            u = u,
-            D = np.array(params.alpha_l*params.v_e+params.D_e),
-            BC = np.array([0.0, 0.0]),
-            dx = dx,
-            layer_sizes = config.model.layer_sizes,
-            device = device,
-            mode="test",
+            u=u,
+            D=np.array(params.alpha_l*params.v_e+params.D_e),
+            BC=np.array([0.0]),
+            dx=dx,
+            layer_sizes=config.model.layer_sizes,
+            device=device,
+            mode="train",
             learn_coeff=False,
-            learn_f=True,
-            learn_f_hyd=False,
+            learn_f=False,
+            learn_f_hyd=True,
             learn_g_hyd=False,
             learn_r_hyd=False,
-            learn_ve=False,
-            learn_k_d=False,
-            learn_beta=False,
-            learn_sk=False,
-            learn_alpha=False,
+            learn_k_d=True,
+            learn_beta=True,
+            learn_alpha=True,
             t_steps=len(t),
-            rho_s = np.array(params.rho_s),
-            f = np.array(params.f),
-            k_d = np.array(params.k_d),
-            beta = np.array(params.beta),
-            n_e = np.array(params.porosity),
-            alpha = np.array(params.a_k),
-            v_e = np.array(params.v_e),
+            rho_s=np.array(params.rho_s),
+            f=np.array(params.f),
+            k_d=np.array(params.k_d),
+            beta=np.array(params.beta),
+            n_e=np.array(params.porosity),
+            alpha=np.array(params.a_k),
+            v_e=np.array(params.v_e),
             sand=params.sandbool,
-            D_sand = np.array(params.sand.alpha_l*params.sand.v_e),
-            n_e_sand = np.array(params.sand.porosity),
-            x_start_soil = np.array(params.sand.top),
-            x_stop_soil = np.array(params.sand.bot),
-            x_steps_soil = np.array(params.X_STEPS),
-            alpha_l_sand = np.array(params.sand.alpha_l),
-            v_e_sand = np.array(params.sand.v_e),
+            D_sand=np.array(params.sand.alpha_l*params.sand.v_e),
+            n_e_sand=np.array(params.sand.porosity),
+            x_start_soil=np.array(params.sand.top),
+            x_stop_soil=np.array(params.sand.bot),
+            x_steps_soil=np.array(params.X_STEPS),
+            alpha_l_sand=np.array(params.sand.alpha_l),
+            v_e_sand=np.array(params.sand.v_e),
             config=None,
             learn_stencil=False,
             bias=True,
             sigmoid=True
         ).to(device=device)
 
-    
+
     elif config.data.type == "diffusion_reaction":
         # Load samples, together with x, y, and t series
         t = th.tensor(np.load(os.path.join(data_path, "t_series.npy")),
@@ -307,7 +248,7 @@ def run_training(print_progress=True, model_number=None):
         x = np.load(os.path.join(data_path, "x_series.npy"))
         y = np.load(os.path.join(data_path, "y_series.npy"))
         u = th.tensor(np.load(os.path.join(data_path, "sample.npy")),
-                             dtype=th.float).to(device=device)
+                             dtype=th.float, requires_grad=False).to(device=device)
         
         u[1:] = u[1:] + th.normal(th.zeros_like(u[1:]),th.ones_like(u[1:])*config.data.noise)
         
@@ -328,11 +269,10 @@ def run_training(print_progress=True, model_number=None):
         ).to(device=device)
 
     # Count number of trainable parameters
-    # #numel returns total number of elements in p
     pytorch_total_params = sum(
         p.numel() for p in model.parameters() if p.requires_grad
     )
-    
+
     if print_progress:
         print("Trainable model parameters:", pytorch_total_params)
 
@@ -347,85 +287,66 @@ def run_training(print_progress=True, model_number=None):
                                       config.model.name + ".pt")))
         model.train()
 
-    #
-    # Set up an optimizer and the criterion (loss)
-    optimizer = th.optim.LBFGS(model.parameters(),
-                                lr=config.training.learning_rate)
+    if config.data.type == "diffusion_ad2ss":
+        # Set up an optimizer and the criterion (loss)
+        optimizer = th.optim.Adam(model.parameters(),
+                                  lr=config.training.learning_rate)
+    else:
+        optimizer = th.optim.LBFGS(model.parameters(),
+                                   lr=config.trainig.learning_rate)
 
-    criterion1 = nn.MSELoss(reduction="mean")
-    criterion2 = nn.MSELoss(reduction="mean")
-    criterion3 = nn.MSELoss(reduction="mean")
-    #
     # Set up lists to save and store the epoch errors
     epoch_errors_train = []
     best_train = np.infty
     """
     TRAINING
     """
-
     a = time.time()
-    #
+
     # Start the training and iterate over all epochs
     for epoch in range(config.training.epochs):
-        
         epoch_start_time = time.time()
-        
+
         # Define the closure function that consists of resetting the
         # gradient buffer, loss function calculation, and backpropagation
         # It is necessary for LBFGS optimizer, because it requires multiple
         # function evaluations
-       
+
         def closure():
-            # Set the model to train mode
-            ## WHY???
-            
+            # Set the model to train mode -> store gradients during pass
             model.train()
+
             # Reset the optimizer to clear data from previous iterations
             optimizer.zero_grad()
 
-            # Forward propagate and calculate loss function
-            #print(f"t: {t.shape}")
-            #print(f"t: {t.shape}")
-            #print(model.state_dict())
+            # forward pass
             u_hat = model(t=t, u=u)
-            if config.expdata:
-                pen_count = 0
-                pen_count_goal = 0
-                # prevent sk from being negative
-                for elem in u_hat[...,1]:
-                    if not(th.all(elem >= 0)):
-                        pen_count+=1
-                
-                print(pen_count)
-                pen_count = th.tensor(pen_count, dtype=th.float, device=model.device)
-                pen_count_goal = th.tensor(pen_count_goal, dtype=th.float, device=model.device)
 
-                mse = 0
-                for eval_index in loss_indices:
-                    
-                    mse+= (u_hat[eval_index,-1,0]-u[eval_index,-1,0])**2
-                mse = mse/len(loss_indices)
-                #mse1 = criterion1(u_hat[:,-1,0], u[:,-1,0])
-                #mse2 = criterion2(u_hat[-1,model.x_start:model.x_stop,1], u[-1,model.x_start:model.x_stop,1])
-                #mse3 = criterion3(pen_count, pen_count_goal)/10000000
-                #
-                #mse = mse1
+            if config.data.type == "diffusion_ad2ss":
+                #print(f"f: {1/(1+np.exp(-(model.__dict__['_parameters']['f'].item())))}")
+                #print(f"f: {1/(1+np.exp(-(model.__dict__['_parameters']['f'].item())))}")
+                #print(f"k_d: {np.abs(model.__dict__['_parameters']['k_d'].item())}")
+                #print(f"beta: {1/(1+np.exp(-(model.__dict__['_parameters']['beta'].item())))}")
+                #print(f"alpha: {np.abs(model.__dict__['_parameters']['alpha'].item())}")
+                mse = nn.MSELoss(reduction="mean")(u_hat, u)
 
             else:
-                mse = criterion1(u_hat, u)
+                mse = nn.MSELoss(reduction="mean")(u_hat, u)
+            print(f"loss: {mse}")
 
-           
-            mse.backward()            
-            print(mse)
+            # do backward pass
+            mse.backward()
+
             return mse
-        
+
+        # Perform one optimization step towards direction of gradients
         optimizer.step(closure)
-            
+
         # Extract the MSE value from the closure function
         mse = closure()
-        
-        epoch_errors_train.append(mse.item())
 
+        epoch_errors_train.append(mse.item())
+        
         # Create a plus or minus sign for the training error
         train_sign = "(-)"
         if epoch_errors_train[-1] < best_train:
@@ -443,7 +364,6 @@ def run_training(print_progress=True, model_number=None):
                     net=model))
                 thread.start()
 
-        #
         # Print progress to the console
         if print_progress:
             print(f"Epoch {str(epoch+1).zfill(int(np.log10(config.training.epochs))+1)}/{str(config.training.epochs)} took {str(np.round(time.time() - epoch_start_time, 2)).ljust(5, '0')} seconds. \t\tAverage epoch training error: {train_sign}{str(np.round(epoch_errors_train[-1], 10)).ljust(12, ' ')}")

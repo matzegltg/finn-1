@@ -1,522 +1,188 @@
+# @File          :   vis.py
+# @Last modified :   2022/12/05 18:44:26
+# @Author        :   Matthias Gueltig
+
+'''
+This script was added to provide visualization methods for solutions and predictions
+of FINN in the 2SS model'''
 import numpy as np
 import torch as th
 import torch.nn as nn
-import os
+
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import sys
-import time
-import pickle
+
+import pickle5 as pickle
 sys.path.append("..")
 from utils.configuration import Configuration
 from finn import *
 import pandas as pd
 
-def animate_1d(t, axis1, axis2, field, field_hat):
-    """
-    Data animation function animating an image over time.
-    :param t: The current time step
-    :param axis: The matplotlib image object
-    :param field: The data field
-    :return: The matplotlib image object updated with the current time step's
-        image date
-    """
-    axis1.set_ydata(field[:, t])
-    axis2.set_ydata(field_hat[:, t])
+def __add_fig(fig, ax, row:float, column:float, title:str, value:np.ndarray, 
+    x:np.ndarray, t:np.ndarray):
+    """add subplot to fig
 
-def init_model(number):
+    Args:
+        fig (_type_): _description_
+        ax (_type_): _description_
+        row (float): _description_
+        column (float): _description_
+        title (str): _description_
+        value (np.ndarray): _description_
+        x (np.ndarray): _description_
+        t (np.ndarray): _description_
+    """
+    font_size = 22
+    h = ax[row, column].imshow(value, interpolation='nearest', 
+                    extent=[t.min(), t.max(),
+                            x.min(), x.max()],
+                    origin='upper', aspect='auto')
+    divider = make_axes_locatable(ax[row,column])
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    cbar = fig.colorbar(h, cax=cax)
+    cbar.ax.tick_params(labelsize=font_size)
+
+    ax[row, column].set_xlim(0, t.max())
+    ax[row, column].set_ylim(x.min(), x.max())
+    ax[row, column].set_xlabel('$t [d]$', fontsize=font_size)
+    ax[row, column].set_ylabel('$x [cm]$', fontsize=font_size)
+    ax[row, column].set_title(title, fontsize = font_size)
+    for label in (ax[row, column].get_xticklabels() + ax[row, column].get_yticklabels()): label.set_fontsize(font_size)
+
+def init_model(number:float, config_NN:Configuration):
+    """Loads selected model
+
+    Args:
+        number (float): model number
+
+    Returns:
+        u_NN: NN calculated solution
+        u_init_NN: c and sk as initialized in params.json before starting the NN
+    """
     with open(f"results/{number}/model.pkl", "rb") as inp:
         model = pickle.load(inp)
+
+    u_NN = np.load(f"results/{number}/u_hat.npy")
+    u = np.load(f"results/{number}/u_FD.npy")
+    t = np.load(f"results/{number}/t_series.npy")
+    x = np.load(f"results/{number}/x_series.npy")
+    return model, u, u_NN, t, x
+
+def vis_FD_NN(model, u_FD:np.ndarray, u_NN:np.ndarray,
+    t:np.ndarray, x:np.ndarray, config_NN):
+
+    fig, ax = plt.subplots(2, 2)
+
     
-    u_hat = np.load(f"results/{number}/u_hat.npy")
+    title_c = r"FD: $c(t,x) \left[\frac{\mu g}{cm^3}\right]$"
+    title_sk = r"FD: $s_k(t,x) \left[\frac{\mu g}{g}\right]$"
     
-    u = np.load(f"results/{number}/u.npy")
-    print(u.shape)
-    t = np.load(f"results/{number}/t.npy")
-    x = np.load(f"results/{number}/x.npy")
-
-    return model, u_hat, u, t, x
-
-def vis_sol(model, u_hat, u, t, x):
-    u_hat = np.transpose(u_hat[...,0])
-    u = np.transpose(u[...,0])
-
-    fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-
-    # u(t, x) over space
-    h = ax[0].imshow(u, interpolation='nearest', 
-                    extent=[t.min(), t.max(),
-                            x.min(), x.max()],
-                    origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax[0])
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-
-    ax[0].set_xlim(0, t.max())
-    ax[0].set_ylim(x.min(), x.max())
-    ax[0].legend(loc="upper right")
-    ax[0].set_xlabel('$t$')
-    ax[0].set_ylabel('$x$')
-    ax[0].set_title('FD: $c_w(t,x)$', fontsize = 10)
-
-    l = ax[1].imshow(u_hat, interpolation='nearest', 
-                    extent=[t.min(), t.max(),
-                            x.min(), x.max()],
-                    origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax[0])
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(l, cax=cax)
-
-    ax[1].set_xlim(0, t.max())
-    ax[1].set_ylim(x.min(), x.max())
-    ax[1].legend(loc="upper right")
-    ax[1].set_xlabel('$t$')
-    ax[1].set_ylabel('$x$')
-    ax[1].set_title('Finn: $c_w(t,x)$', fontsize = 10)
-    plt.show()
-
-def vis_diff(model, u_hat, u, t, x):
-    u_hat = np.transpose(u_hat[...,0])
-    u = np.transpose(u[...,0])
-    # diffplot
-
-    diff = u_hat - u
-
-    fig, ax = plt.subplots()
-
-    # u(t, x) over space
-    h = ax.imshow(diff, interpolation='nearest', 
-                extent=[t.min(), t.max(),
-                        x.min(), x.max()],
-                origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-
-    ax.set_xlim(0, t.max())
-    ax.set_ylim(x.min(), x.max())
-    ax.legend(loc="upper right")
-    ax.set_xlabel('$t$')
-    ax.set_ylabel('$x$')
-    ax.set_title('Difference of $c_w$ FD sol. vs FINN sol.', fontsize = 10)
-    plt.show()
-
-def vis_sorption(model, u_hat, u, t, x, number):
-
-    params = Configuration(f"results/{number}/params/cfg.json")
-
-    # exakt solution
-    sk = np.transpose(u[...,1])
-    cw = np.transpose(u[...,0])
-    k_d = params.k_d
-    beta = params.beta
-    f = params.f
-    se = f*k_d*cw**beta
-
-    # approx FINN sol
-    cw_hat = np.transpose(u_hat[...,0])
-    sk_hat = np.transpose(u_hat[...,1])
-    beta_hat = model.beta.item()
-    k_d_hat = model.k_d.item()
-    f_hat = model.f.item()
-    se_hat = f_hat*k_d_hat*cw_hat**beta_hat
-
-    fig, ax = plt.subplots(3,2)
-
-    # plot s_k FD
-    h = ax[0,0].imshow(sk, interpolation='nearest', 
-                extent=[t.min(), t.max(),
-                        x.min(), x.max()],
-                origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax[0,0])
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-    ax[0,0].set_xlim(0, t.max())
-    ax[0,0].set_ylim(x.min(), x.max())
-    ax[0,0].legend(loc="upper right")
-    ax[0,0].set_xlabel('$t$')
-    ax[0,0].set_ylabel('$x$')
-    ax[0,0].set_title('FD: $s_k(t,x)$', fontsize = 10)
-    
-    # plot s_k FINN
-    h = ax[0,1].imshow(sk_hat, interpolation='nearest', 
-                extent=[t.min(), t.max(),
-                        x.min(), x.max()],
-                origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax[0,1])
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-    ax[0,1].set_xlim(0, t.max())
-    ax[0,1].set_ylim(x.min(), x.max())
-    ax[0,1].legend(loc="upper right")
-    ax[0,1].set_xlabel('$t$')
-    ax[0,1].set_ylabel('$x$')
-    ax[0,1].set_title('FINN: $s_k(t,x)$', fontsize = 10)
-
-    # plot s_e FD
-    h = ax[1,0].imshow(se, interpolation='nearest', 
-                extent=[t.min(), t.max(),
-                        x.min(), x.max()],
-                origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax[1,0])
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-    ax[1,0].set_xlim(0, t.max())
-    ax[1,0].set_ylim(x.min(), x.max())
-    ax[1,0].legend(loc="upper right")
-    ax[1,0].set_xlabel('$t$')
-    ax[1,0].set_ylabel('$x$')
-    ax[1,0].set_title('FD: $s_e(t,x)$', fontsize = 10)
-
-    # plot s_e FINN
-    h = ax[1,1].imshow(se_hat, interpolation='nearest', 
-                extent=[t.min(), t.max(),
-                        x.min(), x.max()],
-                origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax[1,1])
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-    ax[1,1].set_xlim(0, t.max())
-    ax[1,1].set_ylim(x.min(), x.max())
-    ax[1,1].legend(loc="upper right")
-    ax[1,1].set_xlabel('$t$')
-    ax[1,1].set_ylabel('$x$')
-    ax[1,1].set_title('FINN: $s_e(t,x)$', fontsize = 10)
-
-    # plot c_w FD
-    h = ax[2,0].imshow(cw, interpolation='nearest', 
-                extent=[t.min(), t.max(),
-                        x.min(), x.max()],
-                origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax[2,0])
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-    ax[2,0].set_xlim(0, t.max())
-    ax[2,0].set_ylim(x.min(), x.max())
-    ax[2,0].legend(loc="upper right")
-    ax[2,0].set_xlabel('$t$')
-    ax[2,0].set_ylabel('$x$')
-    ax[2,0].set_title('FD: $c_w(t,x)$', fontsize = 10)
-
-    # plot c_w FINN
-    h = ax[2,1].imshow(cw_hat, interpolation='nearest', 
-                extent=[t.min(), t.max(),
-                        x.min(), x.max()],
-                origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax[2,1])
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-    ax[2,1].set_xlim(0, t.max())
-    ax[2,1].set_ylim(x.min(), x.max())
-    ax[2,1].legend(loc="upper right")
-    ax[2,1].set_xlabel('$t$')
-    ax[2,1].set_ylabel('$x$')
-    ax[2,1].set_title('FINN: $c_w(t,x)$', fontsize = 10)
-    plt.tight_layout(pad=0.2)
-    plt.show()
-
-def __vis_ret_old():
-    fig, ax = plt.subplots()
-    # u(t, x) over space
-    h = ax.imshow(c-se, interpolation='nearest', 
-                extent=[t.min(), t.max(),
-                        x.min(), x.max()],
-                origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-
-    ax.set_xlim(0, t.max())
-    ax.set_ylim(x.min(), x.max())
-    ax.legend(loc="upper right")
-    ax.set_xlabel('$t$')
-    ax.set_ylabel('$x$')
-    ax.set_title('$c_w-s_e(t,x)$', fontsize = 10)
-
-    # plot sorpt_isotherm
-    fig, ax = plt.subplots(1,3)
-    for timestep in range(0,len(t)):
-        if timestep%500 == 0:
-            ax[0].plot(c[:,timestep], sk[:,timestep], label=f"2ss: {timestep}")
-    #frndl_rc = model.k_d*model.f*cs**model.beta
-    #ax.plot(cs, frndl_rc, label="freundlich")
-    #ax[0].legend()
-    ax[0].set_xlabel("$c_w$")
-    ax[0].set_ylabel("$s_k$")
-    ax[0].set_title("sorption isotherm after #dt")
-
-    for timestep in range(0,len(t)):
-        if timestep%500 == 0:
-            ax[1].plot(c[:,timestep], s_tot[:,timestep], label=f"2ss: {timestep}")
-    #frndl_rc = model.k_d*model.f*cs**model.beta
-    #ax.plot(cs, frndl_rc, label="freundlich")
-    c_art = np.linspace(0,0.032,20)
-    ax[1].plot(c_art, f*k_d*c_art, "--", label=f"linear instantaneous sorption")
-    #ax[1].legend()
-    ax[1].set_xlabel("$c_w$")
-    ax[1].set_ylabel("$s_e + s_k$")
-    ax[1].set_title("sorption isotherm after #dt")
-
-    for timestep in range(0,len(t)):
-        if timestep%500 == 0:
-            ax[2].plot(c[:,timestep], se[:,timestep], label=f"2ss: {timestep}")
-    #frndl_rc = model.k_d*model.f*cs**model.beta
-    #ax.plot(cs, frndl_rc, label="freundlich")
-    
-    ax[2].plot(c_art, f*k_d*c_art, "--", label=f"linear instantaneous sorption")
-    ax[2].legend(loc='lower left', bbox_to_anchor=(0.5, 1.05))
-    ax[2].set_xlabel("$c_w$")
-    ax[2].set_ylabel("$s_e$")
-    ax[2].set_title("sorption isotherm after #dt")
-    plt.show()
-
-def __vis_ct_diff_old(model, u_hat, u, t, x):
-    t = t.numpy()
-    c_hat = np.transpose(u_hat[...,0])
-    c = np.transpose(u[...,0])
-    c_hat_t = np.transpose(u_hat[...,1])
-    c_t = np.transpose(u[...,1])
-    n_e = model.n_e.item()
-    rho_s = model.rho_s.item()
-    beta = model.beta.item()
-    k_d = model.k_d.item()
-    f =model.f.item()
-    sk  = (c_t-c*n_e -rho_s*(c**beta*k_d)*f)/(rho_s)
-    se = f*k_d*c**beta
-    s_tot = se+sk
-    c_tot_calc = s_tot*rho_s + n_e*c
-    fig, ax = plt.subplots()
-    # u(t, x) over space
-    h = ax.imshow(c_t - c_tot_calc, interpolation='nearest', 
-                extent=[t.min(), t.max(),
-                        x.min(), x.max()],
-                origin='upper', aspect='auto')
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(h, cax=cax)
-
-    ax.set_xlim(0, t.max())
-    ax.set_ylim(x.min(), x.max())
-    ax.legend(loc="upper right")
-    ax.set_xlabel('$t$')
-    ax.set_ylabel('$x$')
-    ax.set_title('$c_t - c_tot_calc$', fontsize = 10)
+    __add_fig(fig=fig, ax=ax, row=0, column=0, title=title_c, 
+        value=u_FD[...,0], x=x, t=t)
+    __add_fig(fig=fig, ax=ax, row=1, column=0, title=title_sk, 
+        value=u_FD[...,1], x=x, t=t)
+    __add_fig(fig=fig, ax=ax, row=0, column=1, title=r"FINN: $c(t,x) \left[\frac{\mu g}{cm^3}\right]$", 
+        value=u_NN[...,0], x=x, t=t)
+    __add_fig(fig=fig, ax=ax, row=1, column=1, title=r"FINN: $s_k(t,x) \left[\frac{\mu g}{g}\right]$", 
+        value=u_NN[...,1], x=x, t=t)
 
     plt.show()
 
-def comp_ret_soil(model, u_hat, u, t, x, number):
+def vis_diff(model, u_FD:np.ndarray, u_NN:np.ndarray, t:np.ndarray, x:np.ndarray, config_NN:Configuration):
+    """calculates difference of u_NN and u_FD solution
 
-    params = Configuration(f"results/{number}/params/cfg.json")
-
-    # exakt solution
-    sk = np.transpose(u[...,1])
-    cw = np.transpose(u[...,0])
-
-    if params.sandbool:
-        sk = sk[params.sand.top:params.sand.bot]
-        cw = cw[params.sand.top:params.sand.bot]
-
-    k_d = params.k_d
-    beta = params.beta
-    f = params.f
-    se = f*k_d*cw**beta
-
-    # approx FINN sol
-    cw_hat = np.transpose(u_hat[...,0])
-    sk_hat = np.transpose(u_hat[...,1])
-
-    if params.sandbool:
-        cw_hat = cw_hat[params.sand.top:params.sand.bot]
-        sk_hat = sk_hat[params.sand.top:params.sand.bot]
-
-    beta_hat = model.beta.item()
-    k_d_hat = model.k_d.item()
-    f_hat = model.f.item()
-    se_hat = f_hat*k_d_hat*cw_hat**beta_hat
-
+    Args:
+        model (_type_): _description_
+        u_FD (np.ndarray): _description_
+        u_NN (np.ndarray): _description_
+        t (np.ndarray): _description_
+        x (np.ndarray): _description_
+    """
+    diff_c = u_FD[...,0] - u_NN[...,0]
+    diff_sk = u_FD[...,1] - u_NN[...,1]
 
     fig, ax = plt.subplots(1,2)
-    # plot sk over cw
-    for timestep in range(0,len(t)):
-        if timestep%500 == 0:
-            color = next(ax[0]._get_lines.prop_cycler)['color']
-            ax[0].plot(cw[:,timestep], sk[:,timestep], label=f"FD: {timestep}", alpha=0.9, color = color)
-            ax[0].plot(cw_hat[:, timestep], sk_hat[:,timestep], "--", label=f"FINN: {timestep}", alpha=0.9, color = color)
-
-    ax[0].set_xlabel("$c_w$")
-    ax[0].set_ylabel("$s_k$")
-    ax[0].set_title("kin. sorb. isotherms (after #dt)")
-    ax[0].legend()
-    
-    # plot se over cw
-    for timestep in range(0,len(t)):
-        if timestep%500 == 0:
-            color = next(ax[1]._get_lines.prop_cycler)['color']
-            ax[1].plot(cw[:,timestep], se[:,timestep], label=f"FD: {timestep}", color=color)
-            ax[1].plot(cw_hat[:, timestep], se_hat[:,timestep], "--", label=f"FINN: {timestep}", color=color)
-    
-    #ax[1].legend()
-    ax[1].set_xlabel("$c_w$")
-    ax[1].set_ylabel("$s_e$")
-    ax[1].set_title("inst. sorb. isotherms (after #dt)")
-    ax[1].legend()
+    ax = np.expand_dims(ax, axis=0)
+    print(ax.shape)
+    __add_fig(fig=fig, ax=ax, row=0, column=0, title=r"$c_{FD} - c_{FINN} \left[\frac{\mu g}{cm^3}\right]$",
+        value=diff_c, x=x, t=t)
+    __add_fig(fig=fig, ax=ax, row=0, column=1, title=r"$s_{k, FD} - s_{k, FINN} \left[\frac{\mu g}{g}\right]$",
+        value=diff_sk, x=x, t=t)
     plt.show()
 
-def vis_btc(model, u_hat, u, t, x, number):
-    params = Configuration(f"results/{number}/params/cfg.json")
-    dt = t[1]-t[0]
-    df = pd.read_excel("../../../../../OneDrive - bwedu/6. Semester/BA/Collaborations/PFAS/Daten/220613_ColumnExperiments_Data_N1.xlsx", "N1", skiprows=9, nrows=40, usecols="B:U")
-    exp_t = df.iloc[[35]].to_numpy(dtype=np.float32).squeeze()
-    start_index = int(exp_t[0]/dt)
-    cw = np.transpose(u[...,0])
-    cw_hat = np.transpose(u_hat[...,0])
+def vis_btc(model, u, u_hat, t, x, config_NN:Configuration):
+    fig, ax = plt.subplots(1,2)
+    font_size = 22
 
-    cw_btc = cw[-1,:]
-    cw_hat_btc = cw_hat[-1,:]
+    # plot BTC
+    ax[0].set_xlabel("t [d]", fontsize=font_size)
+    ax[0].set_ylabel("$c \left[\\frac{\mu g}{cm^3}\\right]$", fontsize=font_size)
+    ax[0].set_title("Conc. of PFOS at outflow", fontsize=font_size)
+    
+    ax[0].plot(t, u[-1,:,0], color="b", label="FD")
+    ax[0].plot(t, u_hat[-1,:,0], color="y", label="FINN")
 
-    fig, ax = plt.subplots(1,1)
-    ax.set_xlabel("t [d]")
-    ax.set_ylabel("conc. PFOS in Eluat []")
-    ax.set_title("BTC")
-    ax.plot(t[start_index:], cw_btc[start_index:], label="Experimental BTC")
-    ax.plot(t, cw_hat_btc, label="FINN predicted BTC")
-    ax.legend()
+    
+    # plot sk end
+    ax[1].set_xlabel("$s_k \:\left[\\frac{\mu g}{g}\\right]$", fontsize=font_size)
+    ax[1].set_ylabel("$x [cm]$", fontsize=font_size)
+    ax[1].set_title(f"Kin. sorbed conc. of PFOS at t = {t[-1]}d", fontsize=font_size)
+    if config_NN.data.name == "data_ext":
+        ax[1].plot(np.flip(u[:,-1,1]), x, color="b", label="FD")
+    elif config_NN.data.name == "data_exp":
+        ax[1].plot(np.flip(u[:,-1,1]), x, color="b", label="Experimental data")
+    ax[1].plot(np.flip(u_hat[:,-1,1]), x, color="y", label="FINN")
+
+    ax[0].legend(fontsize=font_size)
+    plt.locator_params(axis="x", nbins=6)
+    ax[1].legend(fontsize=font_size)
+    plt.locator_params(axis="x", nbins=6)
+    for label in (ax[0].get_xticklabels() + ax[0].get_yticklabels()): label.set_fontsize(font_size)
+    for label in (ax[1].get_xticklabels() + ax[1].get_yticklabels()): label.set_fontsize(font_size)
+    #ax[0].set_yscale("log")
     plt.show()
 
-def vis_sorption_without_params(model, u, u_hat, t, x, number):
-    params = Configuration(f"results/{number}/params/cfg.json")
-
-    # exakt solution
-    sk = np.transpose(u[...,1])
-    cw = np.transpose(u[...,0])
-
-    if params.sandbool:
-        sk = sk[params.sand.top:params.sand.bot]
-        cw = cw[params.sand.top:params.sand.bot]
-
-    k_d = params.k_d
-    beta = params.beta
-    f = params.f
-    se = f*k_d*cw**beta
-
-    # approx FINN sol
-    cw_hat = np.transpose(u_hat[...,0])
-    sk_hat = np.transpose(u_hat[...,1])
-
-    if params.sandbool:
-        cw_hat = cw_hat[params.sand.top:params.sand.bot]
-        sk_hat = sk_hat[params.sand.top:params.sand.bot]
-
-    beta_hat = model.beta.item()
-    k_d_hat = model.k_d.item()
-    f_hat = model.f.item()
-    se_hat = f_hat*k_d_hat*cw_hat**beta_hat
-
+def vis_sorption_isotherms(model, u, u_hat, t, x, config_NN:Configuration):
+    font_size = 22
     fig, ax = plt.subplots()
-    
+    dt = t[1]-t[0]
     # plot sk over cw
-    for timestep in range(0,len(t)):
-        
-        if timestep%200 == 0:
-            
+    modulo_timesteps = np.ceil(len(t)/10)
+    for timestep in range(1,len(t)):
+        if timestep%modulo_timesteps == 0:
             color = next(ax._get_lines.prop_cycler)['color']
-            ax.plot(cw[:,timestep], sk[:,timestep], label=f"FD: {timestep}, like T. Bierbaum", alpha=0.9, color=color)
-            ax.plot(cw_hat[:,timestep], sk_hat[:,timestep], "--", label=f"FINN: {timestep}, based on exp. data",  color=color, alpha=0.9)
+            ax.plot(u_hat[model.x_start:model.x_stop,timestep,0], u_hat[model.x_start:model.x_stop,timestep,1], label=f"FINN: {np.round(timestep*dt, 2)}d", color=color)
+            if config_NN.data.name == "data_ext":
+                ax.plot(u[model.x_start:model.x_stop,timestep,0], u[model.x_start:model.x_stop,timestep,1], "--", label=f"FD: {np.round(timestep*dt, 2)}d",  color=color, alpha=0.9)
 
-    ax.set_xlabel("$c_w$")
-    ax.set_ylabel("$s_k$")
-    ax.set_title("kin. sorb. isotherms (after #dt)")
-    ax.legend()
+    ax.set_xlabel("$c \left[\\frac{\mu g}{cm^3}\\right]$", fontsize = font_size)
+    ax.set_ylabel("$s_k \left[\\frac{\mu g}{g}\\right]$", fontsize = font_size)
+    ax.set_title("$s_k$ vs. $c$ at different times", fontsize=font_size)
+    ax.legend(fontsize=font_size, loc='center left', bbox_to_anchor=(1, 0.5))
+    for label in (ax.get_xticklabels() + ax.get_yticklabels()): label.set_fontsize(font_size)
     plt.show()
 
-def vis_last_column(model, u_hat, u, t, x, number):
-    print(u.shape)
-    sk = u[-1,:,1]
-    print(sk)
-    sk_hat = u_hat[-1,:,1]
-    print(u)
 
-    fig, ax = plt.subplots(1,1)
-    ax.set_xlabel("t [d]")
-    ax.set_ylabel("conc. PFOS in last column at the end of experiment [mug/g]")
-    ax.set_title("kinetically sorbed conc. in last column")
-    ax.plot(sk, x, label="exp")
-    ax.plot(sk_hat, x, label="FINN")
-    ax.legend()
-    plt.show()
+def vis_data(number):
 
-def vis_synth_data(number):
-    model, u_hat, u, t, x = init_model(number)
+    # load NN params
+    params_NN = Configuration(f"results/{number}/params_NN.json")
+    params_FD = Configuration(f"results/{number}/init_params.json")
+    config_NN = Configuration(f"results/{number}/config_NN.json")
+
+    # load NN data
+    model, u, u_NN, t, x = init_model(number, config_NN)
+
+    # visualize
     print(model.__dict__)
-    vis_sol(model, u_hat, u, t, x)
-    vis_diff(model, u_hat, u, t, x)
-    vis_sorption(model, u_hat, u, t,x, number)
-    vis_sorption_without_params(model, u, u_hat, t, x, number)
-
-def vis_exp_data(number):
-    model, u_hat, u, t, x = init_model(number)
-    print(model.__dict__)
-
-    #parts of FD does not make sense!!!!!
-    vis_sol(model, u_hat, u, t, x)
-    vis_sorption(model, u_hat, u, t,x, number)
-    
-    # exp
-    vis_btc(model, u_hat, u, t, x, number)
-    vis_last_column(model, u_hat, u, t,x, number)
-
+    vis_FD_NN(model, u, u_NN, t, x, config_NN)
+    vis_diff(model, u, u_NN, t, x, config_NN)
+    vis_btc(model, u, u_NN, t, x, config_NN)
+    vis_sorption_isotherms(model, u, u_NN, t, x, config_NN)
 
 
 if __name__ == "__main__":
-    #vis_synth_data(number=13)
-    vis_exp_data(number=14)
 
-# Method to vis sk/se over cw inclusive sand -> anything to see?
-def __comp_ret_total(model, u_hat, u, t, x, number):
-
-    params = Configuration(f"results/{number}/params/cfg.json")
-
-    # exakt solution
-    sk = np.transpose(u[...,1])
-    cw = np.transpose(u[...,0])
-    k_d = params.k_d
-    beta = params.beta
-    f = params.f
-    se = f*k_d*cw**beta
-
-    # approx FINN sol
-    cw_hat = np.transpose(u_hat[...,0])
-    sk_hat = np.transpose(u_hat[...,1])
-    beta_hat = model.beta.item()
-    k_d_hat = model.k_d.item()
-    f_hat = model.f.item()
-    se_hat = f_hat*k_d_hat*cw_hat**beta_hat
-
-
-    fig, ax = plt.subplots(1,2)
-    # plot sk over cw
-    for timestep in range(0,len(t)):
-        if timestep%500 == 0:
-            print(cw[:,timestep].shape)
-            print(sk[:,timestep].shape)
-            ax[0].scatter(cw[:,timestep], sk[:,timestep], label=f"FD: {timestep}")
-            ax[0].scatter(cw_hat[:, timestep], sk_hat[:,timestep], label=f"FINN: {timestep}")
-
-    ax[0].set_xlabel("$c_w$")
-    ax[0].set_ylabel("$s_k$")
-    ax[0].set_title("kin. sorb. isotherms (after #dt)")
-    ax[0].legend()
-    
-    # plot se over cw
-    for timestep in range(0,len(t)):
-        if timestep%500 == 0:
-            ax[1].plot(cw[:,timestep], se[:,timestep], label=f"FD: {timestep}")
-            ax[1].plot(cw_hat[:, timestep], se_hat[:,timestep], "--", label=f"FINN: {timestep}")
-    
-    #ax[1].legend()
-    ax[1].set_xlabel("$c_w$")
-    ax[1].set_ylabel("$s_e$")
-    ax[1].set_title("inst. sorb. isotherms (after #dt)")
-    ax[1].legend()
-    plt.show()
+    vis_data(number=32)
