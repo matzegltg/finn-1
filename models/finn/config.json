@@ -14,14 +14,14 @@
 	},
 
 	"data": {
-		"type": "diffusion_ad2ss",  // "burger", "burger_2d" "diffusion_sorption", "diffusion_reaction", "allen_cahn"
+		"type": "allen_cahn",  // "burger", "burger_2d" "diffusion_sorption", "diffusion_reaction", "allen_cahn"
 		"name": "data_train", // "data_train", "data_ext", "data_test"
 		"noise": 0.0
 	},
 
 	"model": {
-		"name": "diff-ad2ss",  // "burger", "burger_2d", "diff-sorp", "diff-react", "allen-cahn"
-		"number": 100,  // The i-th model
-		"layer_sizes": [2, 10, 20, 10, 1] // [1, 10, 20, 10, 1] for burger, burger_2d, diffusion_sorption, and allen_cahn, [2, 20, 20, 20, 2] for diffusion_reaction
+		"name": "allen-cahn",  // "burger", "burger_2d", "diff-sorp", "diff-react", "allen-cahn"
+		"number": 1,  // The i-th model
+		"layer_sizes": [1, 10, 20, 10, 1] // [1, 10, 20, 10, 1] for burger, burger_2d, diffusion_sorption, and allen_cahn, [2, 20, 20, 20, 2] for diffusion_reaction, for 2SS use 2 or 1 input feature (depending ond explicit time dependence) and 1 output feature.
 	}
 }

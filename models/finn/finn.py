@@ -276,7 +276,7 @@ class FINN_DiffSorp(FINN):
         # Initialize the function_learner to learn the retardation factor function
         self.func_nn = self.function_learner().to(device=self.device)
         # Initialize the multiplier of the retardation factor function (denormalization)
-        self.p_exp = nn.Parameter(th.tensor([10],dtype=th.double))
+        self.p_exp = nn.Parameter(th.tensor([10],dtype=th.float))
         
     
     """
